@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PAC Monbot</title>
+<meta name="description" content="État en direct de la pompe à chaleur NIBE VVM 500 : cycle frigorifique, diagnostic, énergie et courbes.">
+<meta name="theme-color" content="#0A111F">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand"><svg class="mark" id="mark" viewBox="28 14 190 172" aria-hidden="true">
+      <defs>
+        <linearGradient id="lg-c" x1="168" y1="144" x2="206" y2="58" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4FC3FF"/><stop offset="1" stop-color="#FF5A4E"/></linearGradient>
+        <linearGradient id="lg-k" x1="206" y1="58" x2="56" y2="58" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FF5A4E"/><stop offset="1" stop-color="#FFB547"/></linearGradient>
+        <linearGradient id="lg-e" x1="56" y1="58" x2="62" y2="144" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFB547"/><stop offset="1" stop-color="#4FC3FF"/></linearGradient>
+      </defs>
+      <path d="M34 180 C 46 70, 92 24, 122 24 C 152 24, 196 70, 208 180" fill="none" stroke="var(--frost)" stroke-width="6" opacity=".3"/>
+      <g fill="none" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M62 144 H168" stroke="#4FC3FF"/><path d="M168 144 L206 58" stroke="url(#lg-c)"/>
+        <path d="M206 58 H56" stroke="url(#lg-k)"/><path d="M56 58 L62 144" stroke="url(#lg-e)"/>
+      </g>
+      <circle r="13" fill="#4FC3FF" stroke="var(--ink)" stroke-width="4">
+        <animateMotion id="mk-move" dur="4.8s" repeatCount="indefinite" path="M62 144 H168 L206 58 H56 L62 144" keyPoints="0;0.243;0.459;0.803;1" keyTimes="0;0.4;0.55;0.88;1" calcMode="linear"/>
+        <animate id="mk-fill" attributeName="fill" dur="4.8s" repeatCount="indefinite" values="#4FC3FF;#4FC3FF;#FF5A4E;#FFB547;#4FC3FF" keyTimes="0;0.4;0.55;0.88;1"/>
+      </circle>
+    </svg><span class="word">PAC<span>/</span>Monbot</span></div>
+    <span class="pill"><span class="dot" id="dot"></span><span id="online">VVM 500</span></span>
+    <span class="pill num" id="stamp">Relevé -</span>
+    <span class="pill num" id="ext">Ext. -</span>
+  </header>
+
+  <div class="wait" id="wait" hidden></div>
+
+  <section class="hero" aria-label="État actuel">
+    <div class="readout">
+      <div class="mode" id="mode">-</div>
+      <div>
+        <div class="label">Départ chauffage BT2</div>
+        <div class="big num"><span id="supply">-</span><sup>°C</sup></div>
+      </div>
+      <div class="sub num">
+        <div><span class="label">Retour BT3</span><b id="ret">-</b></div>
+        <div><span class="label">Calculé</span><b id="calc">-</b></div>
+        <div><span class="label">Eau chaude</span><b id="ecs">-</b></div>
+      </div>
+      <div>
+        <div class="label">Degrés-minutes</div>
+        <div class="therm" role="img" id="dmbar" aria-label="Degrés-minutes"><i id="dmcur" style="left:50%"></i></div>
+        <div class="therm-scale num"><span>-300 déficit</span><span id="dmv">-</span><span>+100 surplus</span></div>
+      </div>
+    </div>
+
+    <figure class="cycle" style="margin:0">
+      <div class="cap label">Installation · dehors EB101 · maison VVM 500</div>
+      <svg id="plant" viewBox="0 0 900 470" role="img" aria-label="Schéma de l'installation : unité extérieure EB101 avec son circuit frigorifique, conduites d'eau vers la maison, VVM 500 avec ballon d'eau chaude et circuit de chauffage">
+        <defs>
+          <linearGradient id="g-hot" x1="0" x2="1"><stop offset="0" stop-color="var(--t-warm)"/><stop offset="1" stop-color="var(--t-hot)"/></linearGradient>
+          <linearGradient id="g-tank" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--t-hot)" stop-opacity=".85"/><stop offset=".55" stop-color="var(--t-warm)" stop-opacity=".6"/><stop offset="1" stop-color="var(--t-cool)" stop-opacity=".35"/></linearGradient>
+        </defs>
+        <g font-family="var(--f-data)" font-size="11" letter-spacing="1.5" fill="var(--mist)">
+          <text x="24" y="46">DEHORS</text><text x="681" y="150" text-anchor="middle">MAISON</text>
+        </g>
+        <!-- sol, maison -->
+        <line x1="0" y1="420" x2="900" y2="420" stroke="var(--rule)" stroke-width="2"/>
+        <path d="M478 420 V178 M884 420 V178" stroke="var(--frost)" stroke-width="2" opacity=".55"/>
+        <path d="M456 184 L681 64 L900 184" fill="none" stroke="var(--frost)" stroke-width="2" opacity=".55" stroke-linejoin="round"/>
+        <rect x="474" y="176" width="8" height="244" fill="var(--rule)"/>
+        <!-- sonde extérieure BT1 sur le mur -->
+        <circle cx="466" cy="198" r="4" fill="var(--t-cold)"/><path d="M466 194 V148" stroke="var(--t-cold)" stroke-width="1" opacity=".5"/>
+        <text x="466" y="140" text-anchor="middle" font-family="var(--f-data)" font-size="12" fill="var(--frost)" id="o-bt1">BT1 -</text>
+
+        <!-- unité extérieure -->
+        <rect x="22" y="150" width="402" height="262" rx="6" fill="var(--slab)" stroke="var(--frost)" stroke-width="1.5"/>
+        <path d="M60 412 v8 M386 412 v8" stroke="var(--frost)" stroke-width="3"/>
+        <text x="36" y="172" font-family="var(--f-data)" font-size="11" fill="var(--mist)" letter-spacing="1.5">EB101 · UNITÉ EXTÉRIEURE</text>
+        <text x="410" y="172" text-anchor="end" font-family="var(--f-data)" font-size="12" fill="var(--t-cold)" id="o-bt28">BT28 -</text>
+        <!-- circuit frigorifique -->
+        <path d="M100 340 V232 Q100 212 120 212 H196" fill="none" stroke="var(--t-cold)" stroke-width="3" opacity=".35"/>
+        <path d="M244 212 H316 Q336 212 336 232 V340" fill="none" stroke="var(--t-hot)" stroke-width="3" opacity=".35"/>
+        <path d="M336 340 Q336 372 316 372 H244" fill="none" stroke="var(--t-warm)" stroke-width="3" opacity=".35"/>
+        <path d="M196 372 H120 Q100 372 100 340" fill="none" stroke="var(--t-cool)" stroke-width="3" opacity=".35"/>
+        <path class="flow rflow" d="M100 340 V232 Q100 212 120 212 H196" fill="none" stroke="var(--t-cold)" stroke-width="3"/>
+        <path class="flow rflow" d="M244 212 H316 Q336 212 336 232 V340" fill="none" stroke="url(#g-hot)" stroke-width="3"/>
+        <path class="flow rflow" d="M336 340 Q336 372 316 372 H244" fill="none" stroke="var(--t-warm)" stroke-width="3"/>
+        <path class="flow rflow" d="M196 372 H120 Q100 372 100 340" fill="none" stroke="var(--t-cool)" stroke-width="3"/>
+        <!-- évaporateur + ventilateur -->
+        <rect class="evap-box" x="70" y="250" width="60" height="96" fill="var(--ink)" stroke="var(--t-cold)" stroke-width="1.5"/>
+        <path d="M80 250 v96 M90 250 v96 M100 250 v96 M110 250 v96 M120 250 v96" stroke="var(--t-cold)" stroke-width="1" opacity=".5"/>
+        <g transform="translate(100 298)"><g class="spin" id="fan"><path d="M0 -26 Q10 -10 0 0 Q-10 -10 0 -26 Z M26 0 Q10 10 0 0 Q10 -10 26 0 Z M0 26 Q-10 10 0 0 Q10 10 0 26 Z M-26 0 Q-10 -10 0 0 Q-10 10 -26 0 Z" fill="var(--t-cold)" opacity=".35"/></g></g>
+        <text x="36" y="238" font-family="var(--f-data)" font-size="11" fill="var(--mist)" letter-spacing="1">ÉVAPORATEUR</text>
+        <text x="36" y="398" font-family="var(--f-display)" font-size="26" font-weight="700" fill="var(--t-cold)" id="s-evap">-</text>
+        <text x="96" y="398" font-family="var(--f-data)" font-size="11" fill="var(--mist)" id="s-lp">BP8 -</text>
+        <!-- compresseur -->
+        <circle cx="220" cy="212" r="26" fill="var(--ink)" stroke="var(--frost)" stroke-width="1.5"/>
+        <g transform="translate(220 212)"><path class="spin" id="rotor" d="M-11 -8 L11 0 L-11 8 Z" fill="var(--frost)"/></g>
+        <text x="220" y="262" text-anchor="middle" font-family="var(--f-display)" font-size="26" font-weight="700" fill="var(--frost)" id="s-hz">-</text>
+        <text x="220" y="280" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" letter-spacing="1">COMPRESSEUR</text>
+        <!-- condenseur (échangeur à plaques vers l'eau) -->
+        <rect class="cond-box" x="312" y="252" width="48" height="76" fill="var(--ink)" stroke="var(--t-hot)" stroke-width="1.5"/>
+        <path d="M318 262 h36 M318 274 h36 M318 286 h36 M318 298 h36 M318 310 h36" stroke="var(--t-hot)" stroke-width="1" opacity=".6"/>
+        <text x="336" y="244" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" letter-spacing="1">CONDENSEUR</text>
+        <text x="300" y="346" text-anchor="end" font-family="var(--f-display)" font-size="22" font-weight="700" fill="var(--t-hot)" id="s-cond">-</text>
+        <!-- détendeur -->
+        <rect x="204" y="358" width="32" height="28" fill="var(--ink)" stroke="var(--frost)" stroke-width="1.5"/>
+        <path d="M210 362 L230 382 M230 362 L210 382" stroke="var(--frost)" stroke-width="1.3"/>
+        <text x="220" y="404" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" letter-spacing="1" id="s-evi">DÉTENDEUR · EVI</text>
+        <!-- dégivrage : affiché seulement pendant un dégivrage -->
+        <g id="defrost-tag" visibility="hidden">
+          <rect x="140" y="292" width="122" height="26" rx="13" fill="var(--t-cold)"/>
+          <text x="201" y="309" text-anchor="middle" font-family="var(--f-data)" font-size="11" font-weight="500" fill="var(--ink)" letter-spacing="1.5">❄ DÉGIVRAGE</text>
+        </g>
+        <!-- sondes frigo -->
+        <g font-family="var(--f-data)" font-size="11" fill="var(--frost)">
+          <circle cx="282" cy="212" r="4" fill="var(--t-hot)"/><text x="296" y="200" text-anchor="middle" id="s-dis">-</text>
+          <circle cx="150" cy="212" r="4" fill="var(--t-cold)"/><text x="146" y="200" text-anchor="middle" id="s-suc">-</text>
+          <circle cx="290" cy="372" r="4" fill="var(--t-warm)"/><text x="290" y="392" text-anchor="middle" id="s-liq">-</text>
+        </g>
+
+        <!-- conduites d'eau unité <-> maison -->
+        <path d="M360 270 H590" fill="none" stroke="var(--t-hot)" stroke-width="3" opacity=".35"/>
+        <path d="M590 330 H360" fill="none" stroke="var(--t-cool)" stroke-width="3" opacity=".35"/>
+        <path class="flow wflow" d="M360 270 H590" fill="none" stroke="var(--t-hot)" stroke-width="3"/>
+        <path class="flow wflow" d="M590 330 H360" fill="none" stroke="var(--t-cool)" stroke-width="3"/>
+        <g font-family="var(--f-data)" font-size="11" fill="var(--frost)">
+          <text x="372" y="262" id="u-sup">eau chaude BT12 -</text>
+          <text x="372" y="348" id="s-ret">retour BT3 -</text>
+        </g>
+        <!-- pompe de charge GP12 -->
+        <circle cx="540" cy="330" r="11" fill="var(--ink)" stroke="var(--frost)" stroke-width="1.3"/><path d="M546 324 L534 330 L546 336 Z" fill="var(--frost)"/>
+        <text x="540" y="360" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" id="h-gp12">GP12 -</text>
+
+        <!-- VVM 500 -->
+        <rect x="590" y="200" width="122" height="212" rx="4" fill="var(--slab)" stroke="var(--frost)" stroke-width="1.5"/>
+        <text x="651" y="194" text-anchor="middle" font-family="var(--f-data)" font-size="11" fill="var(--mist)" letter-spacing="1.5">VVM 500</text>
+        <rect x="606" y="214" width="72" height="150" rx="30" fill="url(#g-tank)" stroke="var(--frost)" stroke-width="1"/>
+        <text x="642" y="246" text-anchor="middle" font-family="var(--f-display)" font-size="22" font-weight="700" fill="var(--ink)" id="h-ecs">-</text>
+        <text x="642" y="260" text-anchor="middle" font-family="var(--f-data)" font-size="9" fill="var(--ink)">BT7 haut</text>
+        <text x="642" y="318" text-anchor="middle" font-family="var(--f-data)" font-size="11" fill="var(--ink)" id="h-ecs2">BT6 -</text>
+        <text x="642" y="350" text-anchor="middle" font-family="var(--f-data)" font-size="9" fill="var(--ink)">BALLON ECS</text>
+        <!-- appoint -->
+        <path d="M690 222 l6 6 l-6 6 l6 6 l-6 6 l6 6 l-6 6" fill="none" stroke="var(--t-warm)" stroke-width="1.6"/>
+        <text x="651" y="386" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" id="h-add">appoint BT63 -</text>
+        <text x="651" y="400" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" id="h-addf">facteur -</text>
+
+        <!-- circuit chauffage -->
+        <path d="M712 250 H820" fill="none" stroke="var(--t-warm)" stroke-width="3" opacity=".35"/>
+        <path d="M820 330 H712" fill="none" stroke="var(--t-cool)" stroke-width="3" opacity=".35"/>
+        <path class="flow hflow" d="M712 250 H820" fill="none" stroke="var(--t-warm)" stroke-width="3"/>
+        <path class="flow hflow" d="M820 330 H712" fill="none" stroke="var(--t-cool)" stroke-width="3"/>
+        <circle cx="746" cy="250" r="11" fill="var(--ink)" stroke="var(--frost)" stroke-width="1.3"/><path d="M741 244 L753 250 L741 256 Z" fill="var(--frost)"/>
+        <text x="746" y="276" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" id="h-gp1">GP1 -</text>
+        <!-- radiateur -->
+        <rect x="820" y="236" width="44" height="108" rx="4" fill="var(--ink)" stroke="var(--t-warm)" stroke-width="1.5"/>
+        <path d="M831 244 v92 M842 244 v92 M853 244 v92" stroke="var(--t-warm)" stroke-width="2" opacity=".55"/>
+        <text x="842" y="362" text-anchor="middle" font-family="var(--f-data)" font-size="10" fill="var(--mist)" letter-spacing="1">CHAUFFAGE</text>
+        <g font-family="var(--f-data)" font-size="11" fill="var(--frost)">
+          <text x="783" y="240" text-anchor="middle" id="h-sup">BT2 -</text>
+          <text x="783" y="320" text-anchor="middle" id="h-ret">BT3 -</text>
+        </g>
+      </svg>
+    </figure>
+  </section>
+
+  <section aria-label="Diagnostic" style="display:flex;flex-direction:column;gap:12px">
+    <div class="sec-h"><h2>Diagnostic</h2><span class="label">calculé à partir du dernier relevé</span></div>
+    <div class="diag num" id="diag"></div>
+  </section>
+
+  <section aria-label="Énergie" style="display:flex;flex-direction:column;gap:12px">
+    <div class="sec-h"><h2>Énergie</h2><span class="label">puissance instantanée et bilan par jour</span></div>
+    <div class="energy num">
+      <div class="watt hot"><span class="label">PAC · électrique</span><b><span id="w-el">-</span><small>W</small></b><span class="why">mesuré par la PAC</span></div>
+      <div class="watt warm"><span class="label">Chaleur produite</span><b><span id="w-heat">-</span><small>W</small></b><span class="why" id="w-heat-why">débit × écart départ/retour</span></div>
+      <div class="watt cool"><span class="label">COP instantané</span><b id="w-cop">-</b><span class="why">chaleur ÷ électricité</span></div>
+      <div class="watt" id="house-tile"><span class="label">Maison · 3 phases</span><b><span id="w-house">-</span><small>W</small></b><span class="phases" id="phases"></span></div>
+    </div>
+    <div class="panel wide">
+      <div class="meta"><h3>Bilan quotidien · 14 jours</h3>
+        <div class="legend"><span><i style="background:var(--t-hot)"></i>électricité consommée, kWh</span><span><i style="background:var(--t-warm);opacity:.45"></i>chaleur produite, kWh</span><span><i style="background:var(--frost)"></i>COP du jour</span></div></div>
+      <svg id="c-energy" viewBox="0 0 1000 240" role="img" aria-label="Énergie par jour sur 14 jours"></svg>
+    </div>
+  </section>
+
+  <section aria-label="Courbes" style="display:flex;flex-direction:column;gap:12px">
+    <div class="sec-h">
+      <h2 id="range-h">24 heures</h2>
+      <div class="tabs" role="group" aria-label="Période">
+        <button id="p6h" data-s="21600" aria-pressed="false">6 h</button><button id="p24h" data-s="86400" aria-pressed="true">24 h</button><button id="p7d" data-s="604800" aria-pressed="false">7 j</button><button id="p30d" data-s="2592000" aria-pressed="false">30 j</button><button id="pall" data-s="all" aria-pressed="false">Tout</button>
+      </div>
+    </div>
+    <div class="panel brush">
+      <div class="meta"><span class="label num" id="brush-label">-</span><span class="label">glisser la fenêtre · tirer les poignées · flèches du clavier</span></div>
+      <svg id="c-brush" viewBox="0 0 1000 74" role="slider" tabindex="0" aria-label="Fenêtre de temps des courbes" aria-valuetext="-"></svg>
+    </div>
+    <div class="charts">
+      <div class="panel wide">
+        <div class="meta"><h3>Départ réel contre loi d'eau</h3>
+          <div class="legend"><span><i style="background:var(--t-warm)"></i>départ BT2</span><span><i style="background:var(--mist)"></i>calculé</span><span><i style="background:var(--t-cold)"></i>extérieur</span></div></div>
+        <svg id="c-supply" viewBox="0 0 1000 260" role="img" aria-label="Départ, calculé et extérieur"></svg>
+      </div>
+      <div class="panel">
+        <div class="meta"><h3>Degrés-minutes</h3><div class="legend"><span>démarrage vers -60</span></div></div>
+        <svg id="c-dm" viewBox="0 0 480 200" role="img" aria-label="Degrés-minutes"></svg>
+      </div>
+      <div class="panel">
+        <div class="meta"><h3>Compresseur</h3><div class="legend"><span>fréquence, Hz</span></div></div>
+        <svg id="c-hz" viewBox="0 0 480 200" role="img" aria-label="Fréquence compresseur"></svg>
+      </div>
+      <div class="panel wide">
+        <div class="meta"><h3>Bande thermique extérieure · 30 jours</h3>
+          <div class="legend scale num"><span>-5°</span><i class="sbar"></i><span>20°</span><span>moyenne du jour, min en bas, max en haut</span></div></div>
+        <svg id="c-stripe" viewBox="0 0 1000 132" role="img" aria-label="Températures extérieures par jour sur 30 jours"></svg>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span class="label">Source : myUplink · NIBE VVM 500 + EB101 · collecte toutes les 5 min</span>
+  </footer>
+</div>
+<script src="/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Mode VM : docker compose up -d (ou podman compose). Secrets dans .env (voir .env.example).
+services:
+  pac:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      DB_PATH: /data/pac.db
+    volumes:
+      - pac-data:/data
+    # Écoute locale seulement : exposer via un reverse proxy authentifié ou cloudflared + Access.
+    ports:
+      - "127.0.0.1:8787:8787"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  pac-data:
