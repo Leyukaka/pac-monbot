@@ -17,7 +17,7 @@
     be3: "40079", be2: "40081", be1: "40083",
     hz: "44701", state: "44064", defrost: "44703", starts: "44069", hours: "44071", hoursEcs: "44073",
     dis: "44059", liq: "44060", suc: "44061", evap: "44363", condOut: "44058", unitRet: "44055", bt28: "44362",
-    hp: "41163", lp: "41162", prio: "49994", ecsComp: "44282", eev: "41017", heat: "50312", // 40072 (débitmètre BF1) absent sur cette installation
+    hp: "41163", lp: "41162", lpBar: "44700", bt84: "41167", prio: "49994", ecsComp: "44282", eev: "41017", heat: "50312", // 40072 (débitmètre BF1) absent sur cette installation
   };
 
   let NOW = null;
@@ -31,6 +31,9 @@
   const PRIO = { 10: "arrêt", 20: "eau chaude", 30: "chauffage", 40: "piscine", 60: "rafraîchissement" };
   // Priorité NIBE (49994) : 20 = eau chaude. Repli : 44282 « compresseurs actifs, eau chaude » (avis Codex).
   const isEcs = () => { const p = val(ID.prio); return p != null ? p === 20 : val(ID.ecsComp) > 0; };
+  // Âge source (horodatage myUplink) d'un point, et écart d'horodatage entre les entrées d'un calcul.
+  const ts = (pid) => NOW?.points?.[pid]?.last_ts ?? null;
+  const skew = (...ids) => { const t = ids.map(ts).filter((x) => x != null); return t.length < ids.length ? Infinity : Math.max(...t) - Math.min(...t); };
   const unit = (pid) => NOW?.points?.[pid]?.unit || "";
   const dmId = () => ID.dm.find((p) => NOW?.points?.[p]?.last_val != null) || ID.dm[0];
 
@@ -150,15 +153,20 @@
     // Débit du circuit de charge estimé : puissance calorifique EB101 / (4,18 kJ/kg·K × (BT12 − EB101-BT3)).
     const dtc = val(ID.condOut) != null && val(ID.unitRet) != null ? val(ID.condOut) - val(ID.unitRet) : null, qh = val(ID.heat);
     const flow = live && dtc >= 2 && qh > 0 ? (qh / (4.18 * dtc)) * 60 : null;
+    // Calculs croisés : entrées relevées à plus de 10 min d'écart -> pas de valeur ; hors régime stable -> valeur grise.
+    const steady = NOW?.stable !== false, SKEW = 600;
+    const ok = (...ids) => skew(...ids) <= SKEW;
+    const shOk = ok(ID.suc, ID.lp), scOk = ok(ID.hp, ID.liq), flOk = ok(ID.condOut, ID.unitRet, ID.heat);
+    const lvl = (b) => (steady ? b : "mist"), stx = (s) => (steady ? s : "Régime transitoire");
     const html = [
-      chip("Surchauffe", live ? fr(sh) : null, "K", "aspiration − saturation BP8", band(sh, 4, 10, 2, 14) === "ok" ? "Saine · 4 à 10 K" : "À surveiller", band(sh, 4, 10, 2, 14), live ? null : off),
-      chip("Sous-refroid.", live ? fr(sc) : null, "K", "saturation BP9 − liquide", band(sc, 3, 9, 2, 12) === "ok" ? "Correct · 3 à 9 K" : "À surveiller", band(sc, 3, 9, 2, 12), live ? null : off),
+      chip("Surchauffe", live && shOk ? fr(sh) : null, "K", "aspiration − saturation BP8", stx(band(sh, 4, 10, 2, 14) === "ok" ? "Saine · 4 à 10 K" : "À surveiller"), lvl(band(sh, 4, 10, 2, 14)), live ? "Relevés décalés" : off),
+      chip("Sous-refroid.", live && scOk ? fr(sc) : null, "K", "saturation BP9 − liquide", stx(band(sc, 3, 9, 2, 12) === "ok" ? "Correct · 3 à 9 K" : "À surveiller"), lvl(band(sc, 3, 9, 2, 12)), live ? "Relevés décalés" : off),
       // Circuit chauffage maison (BT2 départ, BT3 retour, pompe GP1). Sans objet pendant l'eau chaude : les vannes QN10/QN35 envoient l'eau à la cuve.
       chip("Écart chauffage", heating ? fr(dt) : null, "K", "circuit radiateurs · BT2 − BT3", band(dt, 3, 9, 2, 12) === "ok" ? "Normal · 3 à 9 K" : "Débit à vérifier", band(dt, 3, 9, 2, 12),
         heating ? null : "Pompe GP1 à l'arrêt"),
       // Plage de débit chauffage F2120-20 : 0,19 à 0,75 l/s = 11 à 45 l/min (manuel installateur), minimum dégivrage 0,48 l/s.
-      chip("Débit de charge", flow != null ? fr(flow, 0) : null, "l/min", `estimé · ΔT ${fr(dtc)} K` + (qh > 0 && val(ID.pNow) > 0 ? ` · COP ${fr(qh / val(ID.pNow), 1)}` : ""),
-        flow >= 11 && flow <= 45 ? "Plage F2120 · 11 à 45" : "Hors plage F2120", flow == null ? "mist" : flow >= 11 && flow <= 45 ? "ok" : "warn", live ? "ΔT trop faible" : off),
+      chip("Débit de charge", flow != null && flOk ? fr(flow, 0) : null, "l/min", `estimé · ΔT ${fr(dtc)} K` + (steady && qh > 0 && val(ID.pNow) > 0 ? ` · COP ${fr(qh / val(ID.pNow), 1)}` : ""),
+        stx(flow >= 11 && flow <= 45 ? "Plage F2120 · 11 à 45" : "Hors plage F2120"), lvl(flow == null ? "mist" : flow >= 11 && flow <= 45 ? "ok" : "warn"), !live ? off : !flOk ? "Relevés décalés" : "ΔT trop faible"),
       chip("Refoulement", dis != null ? fr(dis) : null, "°C", "limite vers 110 °C", dis < 100 ? "Marge OK" : dis < 110 ? "Chaud" : "Trop chaud", dis == null ? "mist" : dis < 100 ? "ok" : dis < 110 ? "warn" : "crit"),
       chip("Cycle moyen", cyc != null ? fr(cyc, 0) : null, "min", cycWhy, cyc >= 30 ? "Pas de cycles courts" : "Cycles courts", cyc == null ? "mist" : cyc >= 30 ? "ok" : cyc >= 15 ? "warn" : "crit"),
       chip("Appoint élec.", af != null ? fr(af) : null, "", afDelta == null ? "facteur temps" : afDelta > 0 ? `+${fr(afDelta)} sur 7 j` : "stable sur 7 j", afDelta > 0 ? "A servi cette semaine" : "Pas utilisé", af == null ? "mist" : afDelta > 0 ? "warn" : "ok"),

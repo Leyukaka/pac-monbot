@@ -20,6 +20,9 @@ export const TRACKED = [
   "44069", "44071", "44073",         // EB101 démarrages, heures, heures ECS
   "44059", "44060", "44061", "44363", "44058", "44055", "44362", // BT14 BT15 BT17 BT16 BT12 BT3 BT28
   "41163", "41162",                  // BP9, BP8 (température de saturation, °C)
+  // Hors TRACKED, un point n'est relu qu'une fois par heure (refresh méta) : le comparer à un point relu toutes les 5 min
+  // créait de fausses incohérences (BP8 en bar contre BP8 en °C). Historisés désormais au même rythme.
+  "44700", "41167", "41164", "41166", // BP8 (bar), BT84 sortie évaporateur, BT81 injection EVI, BP11 rosée EVI
   "41025", "41019", "41017",         // EVI position, surchauffe EVI, détendeur principal EEV (QN1)
   "50312", "43115",                  // puissance calorifique EB101 (kW), consigne de charge ECS
   // Journal d'énergie NIBE : puissance instantanée + bilans heure passée.
@@ -327,11 +330,17 @@ async function now(env, _q, house) {
   const old = (await env.DB.prepare(
     "SELECT r.pid, r.value, r.ts FROM readings r JOIN (SELECT pid, MIN(ts) AS t FROM readings WHERE pid IN ('44069','44071','44073','43081') AND ts >= ? GROUP BY pid) m ON r.pid = m.pid AND r.ts = m.t"
   ).bind(ago).all()).results;
+  // Régime stable sur 15 min : compresseur en marche à chaque relevé, fréquence à ±15 Hz près, pas de dégivrage.
+  // Hors de ce régime, surchauffe, sous-refroidissement et débit estimé oscillent et ne se lisent pas contre une plage.
+  const st = await env.DB.prepare("SELECT COUNT(*) n, MIN(CASE WHEN pid='44701' THEN value END) lo, MAX(CASE WHEN pid='44701' THEN value END) hi, " +
+    "MAX(CASE WHEN pid='44703' THEN value END) dg FROM readings WHERE pid IN ('44701','44703') AND ts >= ?").bind(nowS() - 900).first();
+  const stable = !!st && st.n >= 4 && st.lo > 0 && st.hi - st.lo <= 15 && !(st.dg > 0);
   const alarms = JSON.parse(await kvGet(env, "alarms", "[]")).map((a) => ({ severity: a.severity ?? null, header: a.header ?? null }));
   return {
     points: Object.fromEntries(rows.map((r) => [r.pid, r])),
     counters7d: Object.fromEntries(old.map((r) => [r.pid, { value: r.value, ts: r.ts }])),
     alarms,
+    stable,
     house: !!house,
     poll: { last: last ? { ts: last.ts, ok: last.ok } : null, lastOk: lastOk?.ts ?? null },
     server: nowS(),
