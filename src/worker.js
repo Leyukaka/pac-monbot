@@ -14,7 +14,7 @@ export const TRACKED = [
   "40940",                           // degrés-minutes (43005 absent sur ce firmware)
   "43081", "43084",                  // facteur temps appoint, puissance appoint
   "43437", "44396",                  // pompes GP1, GP12
-  "49994",                           // priorité (20 = eau chaude, texte dans points.last_str)
+  "49994", "44282",                  // priorité (20 = eau chaude), compresseurs actifs en ECS
   "40079", "40081", "40083",         // intensités BE3, BE2, BE1 (phases maison, privé)
   "44701", "40782", "44064", "44703",// EB101 fréquence, demandée, état, dégivrage
   "44069", "44071", "44073",         // EB101 démarrages, heures, heures ECS

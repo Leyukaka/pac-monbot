@@ -17,7 +17,7 @@
     be3: "40079", be2: "40081", be1: "40083",
     hz: "44701", state: "44064", defrost: "44703", starts: "44069", hours: "44071", hoursEcs: "44073",
     dis: "44059", liq: "44060", suc: "44061", evap: "44363", condOut: "44058", unitRet: "44055", bt28: "44362",
-    hp: "41163", lp: "41162", prio: "49994", eev: "41017", heat: "50312", // 40072 (débitmètre BF1) absent sur cette installation
+    hp: "41163", lp: "41162", prio: "49994", ecsComp: "44282", eev: "41017", heat: "50312", // 40072 (débitmètre BF1) absent sur cette installation
   };
 
   let NOW = null;
@@ -29,9 +29,8 @@
   const val = (pid) => { const ids = Array.isArray(pid) ? pid : [pid]; for (const p of ids) { const r = NOW?.points?.[p]; if (r && r.last_val != null) return r.last_val; } return null; };
   // Codes de priorité NIBE (49994 / registre 43086), liste Modbus S-series : pas de code 50.
   const PRIO = { 10: "arrêt", 20: "eau chaude", 30: "chauffage", 40: "piscine", 60: "rafraîchissement" };
-  // Priorité NIBE (49994) : 20 = eau chaude. Sans elle (ancien relevé), repli : GP12 tourne et départ > calculé + 4.
-  const isEcs = () => { const p = val(ID.prio), sup = val(ID.supply), calc = val(ID.calc);
-    return p != null ? p === 20 : val(ID.gp12) > 0 && sup != null && calc != null && sup > calc + 4; };
+  // Priorité NIBE (49994) : 20 = eau chaude. Repli : 44282 « compresseurs actifs, eau chaude » (avis Codex).
+  const isEcs = () => { const p = val(ID.prio); return p != null ? p === 20 : val(ID.ecsComp) > 0; };
   const unit = (pid) => NOW?.points?.[pid]?.unit || "";
   const dmId = () => ID.dm.find((p) => NOW?.points?.[p]?.last_val != null) || ID.dm[0];
 
