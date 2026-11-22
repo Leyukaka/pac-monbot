@@ -137,28 +137,27 @@
     K = b.dataset.k; document.querySelectorAll(".tabs button[data-k]").forEach((o) => o.setAttribute("aria-pressed", String(o === b))); if (A) drawProfile();
   }));
 
-  // Période : deux curseurs (début, fin) sur l'étendue des données, en jours locaux ; recalcul serveur au relâchement.
+  // Période : une rangée de boutons (7 j, 30 j, un par mois, tout), recalcul serveur au clic.
   const addD = (k, n) => new Date(Date.parse(k + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
   const nDays = (a, b) => Math.round((Date.parse(b + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / 864e5);
-  const dLong = (k) => new Date(k + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const dShort = (k) => new Date(k + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
   let SPAN = null, seq = 0;
-  const s0 = $("a-d0"), s1 = $("a-d1");
-  const cur = () => [addD(SPAN.from, Number(s0.value)), addD(SPAN.from, Number(s1.value))];
-  const label = () => { const [a, b] = cur(), n = nDays(a, b) + 1;
-    $("a-period-v").textContent = a === b ? dLong(a) : `${dLong(a)} → ${dLong(b)}`;
-    $("a-period-n").textContent = `${n} jour${n > 1 ? "s" : ""}`; };
-  const setRange = (a, b) => { if (!SPAN) return;
-    const max = nDays(SPAN.from, SPAN.to), cl = (v) => Math.min(max, Math.max(0, v));
-    s0.value = cl(nDays(SPAN.from, a < SPAN.from ? SPAN.from : a)); s1.value = cl(nDays(SPAN.from, b > SPAN.to ? SPAN.to : b)); label(); load(...cur()); };
-  const fix = (moved) => { if (Number(s0.value) > Number(s1.value)) (moved === s0 ? s1 : s0).value = moved.value; label(); };
-  s0.oninput = () => fix(s0); s1.oninput = () => fix(s1);
-  s0.onchange = s1.onchange = () => load(...cur());
-  $("a-presets").addEventListener("click", (e) => { const p = e.target.closest("button")?.dataset.p; if (!p || !SPAN) return;
-    const t = SPAN.to;
-    if (p === "all") setRange(SPAN.from, t);
-    else if (p === "m") setRange(t.slice(0, 8) + "01", t);
-    else if (p === "pm") { const e1 = addD(t.slice(0, 8) + "01", -1); setRange(e1.slice(0, 8) + "01", e1); }
-    else setRange(addD(t, 1 - Number(p)), t); });
+  function presets(sp) {
+    const t = sp.to, out = [["7 j", addD(t, -6), t], ["30 j", addD(t, -29), t]];
+    for (let m = sp.from.slice(0, 7); m <= t.slice(0, 7); m = addD(m + "-28", 7).slice(0, 7)) {
+      const end = addD(addD(m + "-28", 7).slice(0, 7) + "-01", -1);
+      out.push([new Date(m + "-15T12:00:00Z").toLocaleDateString("fr-FR", { month: "short", timeZone: "UTC" }).replace(".", ""), m + "-01", end]);
+    }
+    out.push(["Tout", sp.from, t]);
+    return out.map(([n, a, b]) => [n, a < sp.from ? sp.from : a, b > t ? t : b]);
+  }
+  function pick(btn) {
+    $("a-presets").querySelectorAll("button").forEach((o) => o.setAttribute("aria-pressed", String(o === btn)));
+    const { a, b } = btn.dataset, n = nDays(a, b) + 1;
+    $("a-period-v").textContent = `${dShort(a)} → ${dShort(b)} · ${n} j`;
+    load(a, b);
+  }
+  $("a-presets").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) pick(b); });
 
   function load(d0, d1) {
     const my = ++seq, q = "?v=2" + (d0 ? `&d0=${d0}&d1=${d1}` : ""); // v : change de clé de cache quand le format change
@@ -168,10 +167,11 @@
       if (j.error) throw j.error;
       A = j; $("a-wait").hidden = true; document.body.classList.remove("a-busy");
       const sp = j.period?.span;
-      if (sp && !SPAN) { SPAN = sp; const max = nDays(sp.from, sp.to);
-        for (const s of [s0, s1]) s.max = max;
-        const a = j.meterFrom ? new Date(j.meterFrom * 1000).toLocaleDateString("en-CA", { timeZone: "Europe/Luxembourg" }) : sp.from;
-        s0.value = Math.max(0, nDays(sp.from, a)); s1.value = max; label(); $("a-period").hidden = false; }
+      if (sp && !SPAN) { SPAN = sp;
+        $("a-presets").innerHTML = presets(sp).map(([n, a, b]) => `<button data-a="${a}" data-b="${b}" aria-pressed="false">${n}</button>`).join("");
+        const all = $("a-presets").lastElementChild; all.setAttribute("aria-pressed", "true");
+        $("a-period-v").textContent = `${dShort(all.dataset.a)} → ${dShort(all.dataset.b)} · ${nDays(all.dataset.a, all.dataset.b) + 1} j`;
+        $("a-period").hidden = false; }
       render();
     }).catch((e) => { if (my !== seq) return; document.body.classList.remove("a-busy");
       $("a-wait").hidden = false; $("a-wait").textContent = e === 404 ? "Analyse réservée à l'espace privé." : "Analyse indisponible pour le moment."; });

@@ -173,7 +173,8 @@ html,body{margin:0}
 #a-sim{width:100%;accent-color:var(--t-warm)}
 .a-sec .why{font-size:13px;color:var(--mist);margin:8px 0 0;max-width:90ch;line-height:1.5}
 
-/* Analyse : curseurs de période */
-.a-slider { display: grid; grid-template-columns: 4.5em 1fr; align-items: center; gap: 12px; margin: 8px 0; }
-.a-slider input { width: 100%; accent-color: var(--t-warm); }
+/* Analyse : période */
+.a-period { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 10px 0; margin-bottom: 8px; background: var(--ink); border-bottom: 1px solid var(--rule); }
+.a-period .tabs { flex-wrap: wrap; }
 body.a-busy .a-sec:not(#a-period) { opacity: .55; transition: opacity .2s; }
