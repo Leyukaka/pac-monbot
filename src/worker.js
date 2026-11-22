@@ -72,7 +72,9 @@ export default {
       if (!success) return json({ error: "trop de requêtes, réessayez dans une minute" }, 429);
     }
 
-    const route = { "/api/now": now, "/api/series": series, "/api/health": health }[path];
+    const house = priv || env.SHOW_HOUSE === "1";
+    // /api/cost : coût de l'électricité, seulement dans l'espace privé (ou SHOW_HOUSE=1).
+    const route = { "/api/now": now, "/api/series": series, "/api/health": health, ...(house ? { "/api/cost": cost } : {}) }[path];
     if (!route) return json({ error: "inconnu" }, 404);
 
     // Cache 60 s sur une clé normalisée (fenêtres arrondies), pour absorber les rafraîchissements.
@@ -85,7 +87,8 @@ export default {
     if (hit) return toClient(hit);
     let res;
     try {
-      res = json(await route(env, url.searchParams, priv || env.SHOW_HOUSE === "1"), 200, CACHE_S);
+      // Le coût ne bouge qu'une fois par heure : 10 min de cache (lecture de ~10 000 lignes horaires).
+      res = json(await route(env, url.searchParams, house), 200, route === cost ? 600 : CACHE_S);
     } catch (e) {
       console.error("api", url.pathname, e && e.stack || e);
       return json({ error: "erreur interne" }, 500);
@@ -276,6 +279,53 @@ async function series(env, q, house) {
   for (const p of pids) out[p] = [];
   for (const r of rows) out[r.pid].push([r.b, round(r.a), round(r.lo), round(r.hi)]);
   return out;
+}
+
+// ---------- coût de l'électricité (privé) ----------
+// PAC : moyenne horaire des compteurs NIBE « consommé, heure passée » (kWh), appoint compris.
+// Maison : 3 phases (A) × 230 V, estimation en puissance apparente (pas de cos φ).
+// Tarif : PRICE_KWH (base ou heures pleines), PRICE_HC + HC_HOURS ("22-6", "23:30-7:30,12-14"), TIMEZONE.
+const USE = ["32495", "32496", "32499", "32500"];
+const VOLT = 230;
+function tariff(env) {
+  const num = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n > 0 ? n : null; };
+  const hc = num(env.PRICE_HC), hcHours = String(env.HC_HOURS || "22-6");
+  const ranges = hc ? hcHours.split(",").map((r) => r.split("-").map((x) => { const [h, m] = x.trim().split(":").map(Number); return h * 60 + (m || 0); }))
+    .filter((r) => r.length === 2 && r.every((v) => Number.isFinite(v) && v >= 0 && v <= 1440)) : [];
+  return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges };
+}
+const inRange = (m, [a, b]) => (a <= b ? m >= a && m < b : m >= a || m < b);
+
+async function cost(env) {
+  const T = tariff(env);
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: T.tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const local = (ts) => { const p = Object.fromEntries(fmt.formatToParts(new Date(ts * 1000)).map((x) => [x.type, x.value])); return { day: `${p.year}-${p.month}-${p.day}`, min: Number(p.hour) * 60 + Number(p.minute) }; };
+  const pids = [...USE, ...HOUSE];
+  const since = Math.floor((nowS() - 62 * 86400) / 3600) * 3600;
+  const rows = (await env.DB.prepare(`SELECT ts, pid, a FROM readings_h WHERE ts >= ? AND pid IN (${pids.map(() => "?").join(",")})`)
+    .bind(since, ...pids).all()).results;
+  const hours = new Map();
+  for (const r of rows) {
+    let h = hours.get(r.ts);
+    if (!h) hours.set(r.ts, (h = { pac: null, amps: 0, ph: 0 }));
+    if (HOUSE.has(r.pid)) { h.amps += r.a; h.ph++; } else h.pac = (h.pac ?? 0) + r.a;
+  }
+  const days = new Map();
+  for (const ts of [...hours.keys()].sort((a, b) => a - b)) {
+    const h = hours.get(ts), { day, min } = local(ts);
+    let d = days.get(day);
+    if (!d) days.set(day, (d = { d: day, hp: 0, hc: 0, hours: 0, house: 0, houseHours: 0 }));
+    // Part en heures creuses, sondée à :15 et :45 (tranches d'une demi-heure).
+    const f = T.hc ? [15, 45].filter((m) => T.ranges.some((r) => inRange((min + m) % 1440, r))).length / 2 : 0;
+    if (h.pac != null) { d.hp += h.pac * (1 - f); d.hc += h.pac * f; d.hours++; }
+    if (h.ph === 3) { d.house += (h.amps * VOLT) / 1000; d.houseHours++; }
+  }
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  return {
+    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz },
+    today: local(nowS()).day,
+    days: [...days.values()].map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house) })),
+  };
 }
 
 async function health(env) {

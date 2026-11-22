@@ -186,6 +186,21 @@
     </div>
   </section>
 
+  <section aria-label="Coût de l'électricité" id="cost-sec" hidden style="display:flex;flex-direction:column;gap:12px">
+    <div class="sec-h"><h2>Coût de l'électricité</h2><span class="label" id="cost-tariff">-</span></div>
+    <div class="energy num">
+      <div class="watt hot"><span class="label">Aujourd'hui · PAC</span><b><span id="k-today">-</span><small>€</small></b><span class="why" id="k-today-why"></span></div>
+      <div class="watt"><span class="label">Hier</span><b><span id="k-yday">-</span><small>€</small></b><span class="why" id="k-yday-why"></span></div>
+      <div class="watt"><span class="label">7 derniers jours</span><b><span id="k-7d">-</span><small>€</small></b><span class="why" id="k-7d-why"></span></div>
+      <div class="watt warm"><span class="label">Mois en cours</span><b><span id="k-month">-</span><small>€</small></b><span class="why" id="k-month-why"></span></div>
+    </div>
+    <div class="panel wide">
+      <div class="meta"><h3>Coût par jour · 30 jours</h3>
+        <div class="legend"><span><i style="background:var(--t-hot)"></i>PAC, heures pleines ou base</span><span><i style="background:var(--t-cool)"></i>PAC, heures creuses</span><span><i class="dash"></i>maison, estimation 3 phases × 230 V</span></div></div>
+      <svg id="c-cost" viewBox="0 0 1000 240" role="img" aria-label="Coût de l'électricité par jour sur 30 jours"></svg>
+    </div>
+  </section>
+
   <section aria-label="Courbes" style="display:flex;flex-direction:column;gap:12px">
     <div class="sec-h">
       <h2 id="range-h">24 heures</h2>

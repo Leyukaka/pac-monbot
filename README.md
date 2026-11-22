@@ -10,6 +10,8 @@ It shows:
 - flow and return temperatures against the heating curve, degree-minutes and the electric backup heater;
 - electrical power, heat produced, COP and a 14-day energy balance from the NIBE energy log;
 - charts with a draggable time brush (6 h, 24 h, 7 d, 30 d, all), plus a 30-day outdoor temperature band.
+- hover any chart to read the exact values under the cursor;
+- in the private area only: an electricity cost board (today, yesterday, 7 days, month to date with an end-of-month projection, 30-day bars split peak / off-peak, whole-house estimate).
 
 | Schematic while running (`?demo=64`) | Phone, defrost (`?demo=defrost`) |
 |---|---|
@@ -61,6 +63,19 @@ The Worker then checks the `Cf-Access-Jwt-Assertion` token itself before serving
 
 To protect the whole site instead, leave the Access path empty.
 
+### Electricity cost (private area)
+
+The cost board uses the NIBE energy log (heat pump consumption per hour, backup heater included) and the house phase currents. Set your tariff in `vars` (Cloudflare) or `.env` (VM):
+
+| Variable | Meaning |
+|---|---|
+| `PRICE_KWH` | Price per kWh, base tariff or peak hours (default 0.1952) |
+| `PRICE_HC` | Optional off-peak price per kWh |
+| `HC_HOURS` | Off-peak local hours, e.g. `22-6` or `23:30-7:30,12-14` (half-hour precision) |
+| `TIMEZONE` | Time zone for days and off-peak hours (default `Europe/Paris`) |
+
+Amounts exclude the subscription. The whole-house figure is an estimate: phase currents × 230 V, so apparent power without power factor. `/api/cost` only answers under `/prive/` (or with `SHOW_HOUSE=1`).
+
 Keep `workers_dev: false`, otherwise the `*.workers.dev` URL would bypass Access.
 
 ## B. Run on a VM or server
@@ -96,6 +111,7 @@ There is **no built-in login**, and the server listens on `127.0.0.1` only. To r
 |---|---|
 | `/api/now` | Latest values, 7-day counters, active alarms (severity and title), collector status |
 | `/api/series?range=24h\|7d\|30d\|30dd\|365d\|all&pids=…`, or `from=&to=` (UTC seconds) | Aggregated series, about 400 points per series at most, 12 series at most |
+| `/prive/api/cost` | Private: kWh per local day (peak / off-peak, house estimate) and the tariff, last 62 days |
 | `/api/health` | Last 12 collections, myUplink history-route probe |
 
 ## Security

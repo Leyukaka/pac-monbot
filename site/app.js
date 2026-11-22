@@ -186,6 +186,49 @@
   const niceTicks = (lo, hi, n = 4) => { const s = Math.pow(10, Math.floor(Math.log10((hi - lo) / n || 1))); const st = [1, 2, 5, 10].map((m) => m * s).find((m) => (hi - lo) / m <= n) || s * 10; const a = Math.floor(lo / st) * st, b = Math.ceil(hi / st) * st; const r = []; for (let v = a; v <= b + 1e-9; v += st) r.push(Math.round(v * 100) / 100); return r; };
   const empty = (svg, W, H) => { svg.replaceChildren(el("text", { x: W / 2, y: H / 2, "text-anchor": "middle", "font-family": "var(--f-data)", "font-size": 12, fill: "var(--mist)" }, "Courbe disponible après quelques collectes")); };
 
+  // ---------- infobulle au survol ----------
+  // Chaque graphique enregistre une fonction (point SVG) -> { html, x, dots } ; une seule bulle partagée.
+  const tip = document.createElement("div"); tip.className = "tip num"; tip.hidden = true; tip.setAttribute("role", "tooltip"); document.body.appendChild(tip);
+  const fmtTip = (t) => new Date(t * 1000).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const fmtDay = (t) => new Date(t * 1000).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "UTC" });
+  const row = (c, name, v) => `<div><i style="background:${c}"></i>${name}<b>${v}</b></div>`;
+  function hover(svg, fn) {
+    svg._hv = fn;
+    if (svg._hvOn) return; svg._hvOn = true;
+    const hide = () => { svg.querySelector(".hv")?.remove(); tip.hidden = true; };
+    const move = (e) => {
+      const m = svg.getScreenCTM(); if (!m || !svg._hv) return hide();
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+      const r = svg._hv(p); if (!r) return hide();
+      let g = svg.querySelector(".hv"); if (!g) g = el("g", { class: "hv" });
+      svg.appendChild(g); g.replaceChildren();
+      if (r.x != null) g.appendChild(el("line", { x1: r.x, x2: r.x, y1: r.y0, y2: r.y1, class: "hv-line" }));
+      if (r.band) g.appendChild(el("rect", { ...r.band, class: "hv-band" }));
+      (r.dots || []).forEach((d) => g.appendChild(el("circle", { cx: d.x, cy: d.y, r: 4.5, fill: d.c, class: "hv-dot" })));
+      tip.innerHTML = r.html; tip.hidden = false;
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      let x = e.clientX + 16, y = e.clientY + 16;
+      if (x + w > innerWidth - 8) x = Math.max(8, e.clientX - w - 16);
+      if (y + h > innerHeight - 8) y = Math.max(8, e.clientY - h - 16);
+      tip.style.transform = `translate(${x}px, ${y}px)`;
+    };
+    svg.addEventListener("pointermove", move); svg.addEventListener("pointerdown", move);
+    svg.addEventListener("pointerleave", hide); svg.addEventListener("pointercancel", hide);
+  }
+  // Courbes temporelles : point le plus proche de chaque série à l'instant survolé.
+  const nearest = (pts, t) => { let lo = 0, hi = pts.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m][0] < t) lo = m; else hi = m; } return Math.abs(pts[lo][0] - t) <= Math.abs(pts[hi][0] - t) ? pts[lo] : pts[hi]; };
+  function hoverTime(svg, W, H, pad, x, y, t0, t1, tol, series) {
+    hover(svg, (p) => {
+      if (p.x < pad.l || p.x > W - pad.r) return null;
+      const t = t0 + ((p.x - pad.l) / (W - pad.l - pad.r)) * (t1 - t0);
+      const hits = series.filter((s) => s.pts.length).map((s) => ({ s, q: nearest(s.pts, t) })).filter((h) => Math.abs(h.q[0] - t) <= tol);
+      if (!hits.length) return null;
+      const tt = hits[0].q[0];
+      return { x: x(tt), y0: pad.t, y1: H - pad.b, dots: hits.map((h) => ({ x: x(h.q[0]), y: y(h.q[1]), c: h.s.c })),
+        html: `<div class="tip-h">${fmtTip(tt)}</div>` + hits.map((h) => row(h.s.c, h.s.name, h.s.f(h.q[1]))).join("") };
+    });
+  }
+
   let seriesSeq = 0;
   async function renderSeries() {
     const pids = [ID.supply, ID.calc, ID.out, ID.hz, ...ID.dm].join(",");
@@ -198,7 +241,7 @@
     {
       const svg = $("c-supply"), W = 1000, H = 260, pad = { l: 38, r: 60, t: 10, b: 22 };
       const sup = g(ID.supply), cal = g(ID.calc), out = g(ID.out);
-      if (sup.length < 2) empty(svg, W, H);
+      if (sup.length < 2) { empty(svg, W, H); svg._hv = null; }
       else {
         const all = [...sup, ...cal, ...out].map((p) => p[1]);
         const yt = niceTicks(Math.min(0, ...all), Math.max(...all));
@@ -208,6 +251,8 @@
         if (cal.length) svg.appendChild(el("path", { d: line(cal, x, y), fill: "none", stroke: "var(--mist)", "stroke-width": 1.5, "stroke-dasharray": "5 5" }));
         if (out.length) svg.appendChild(el("path", { d: line(out, x, y), fill: "none", stroke: "var(--t-cold)", "stroke-width": 1.5 }));
         svg.appendChild(el("path", { d: line(sup, x, y), fill: "none", stroke: "var(--t-warm)", "stroke-width": 2.2 }));
+        const deg = (v) => fr(v) + " °C", tol = Math.max(s.step || 600, (t1 - t0) / 200);
+        hoverTime(svg, W, H, pad, x, y, t0, t1, tol, [{ name: "départ", c: "var(--t-warm)", pts: sup, f: deg }, { name: "calculé", c: "var(--mist)", pts: cal, f: deg }, { name: "extérieur", c: "var(--t-cold)", pts: out, f: deg }]);
         [[sup, "var(--t-warm)"], [cal, "var(--mist)"], [out, "var(--t-cold)"]].forEach(([ser, c]) => { if (!ser.length) return; const p = ser[ser.length - 1]; svg.appendChild(el("circle", { cx: x(p[0]), cy: y(p[1]), r: 4, fill: c })); svg.appendChild(el("text", { x: x(p[0]) + 10, y: y(p[1]) + 4, fill: c, "font-family": "var(--f-data)", "font-size": 12 }, fr(p[1]) + "°")); });
       }
     }
@@ -215,20 +260,21 @@
     {
       const svg = $("c-dm"), W = 480, H = 200, pad = { l: 42, r: 8, t: 10, b: 22 };
       const dm = g(ID.dm.find((p) => (s[p] || []).length) || ID.dm[0]);
-      if (dm.length < 2) empty(svg, W, H);
+      if (dm.length < 2) { empty(svg, W, H); svg._hv = null; }
       else {
         const v = dm.map((p) => p[1]); const yt = niceTicks(Math.min(-100, ...v), Math.max(20, ...v));
         const { x, y } = axes(svg, W, H, pad, t0, t1, yt[0], yt[yt.length - 1], yt);
         const bw = Math.max(1, ((W - pad.l - pad.r) / ((t1 - t0) / (s.step || 600))) * 0.8);
         dm.forEach((p, i) => { const y0 = y(0), y1 = y(p[1]); svg.appendChild(el("rect", { x: x(p[0]) - bw / 2, y: Math.min(y0, y1), width: bw, height: Math.max(1, Math.abs(y1 - y0)), fill: p[1] < 0 ? "var(--t-cold)" : "var(--t-warm)", opacity: i === dm.length - 1 ? 1 : 0.75 })); });
         svg.appendChild(el("line", { x1: pad.l, x2: W - pad.r, y1: y(-60), y2: y(-60), stroke: "var(--frost)", "stroke-dasharray": "2 4" }));
+        hoverTime(svg, W, H, pad, x, y, t0, t1, Math.max(s.step || 600, (t1 - t0) / 200), [{ name: "degrés-minutes", c: "var(--t-cold)", pts: dm, f: (v) => fr(v, 0) + " DM" }]);
       }
     }
     // compresseur
     {
       const svg = $("c-hz"), W = 480, H = 200, pad = { l: 38, r: 8, t: 10, b: 22 };
       const hz = g(ID.hz);
-      if (hz.length < 2) empty(svg, W, H);
+      if (hz.length < 2) { empty(svg, W, H); svg._hv = null; }
       else {
         const yt = niceTicks(0, Math.max(90, ...hz.map((p) => p[1])));
         const { x, y } = axes(svg, W, H, pad, t0, t1, 0, yt[yt.length - 1], yt);
@@ -236,6 +282,7 @@
         svg.appendChild(el("path", { d: d + `L${x(hz[hz.length - 1][0])} ${y(0)} L${x(hz[0][0])} ${y(0)} Z`, fill: "var(--t-hot)", opacity: 0.18 }));
         svg.appendChild(el("path", { d, fill: "none", stroke: "var(--t-hot)", "stroke-width": 1.6 }));
         const p = hz[hz.length - 1]; svg.appendChild(el("circle", { cx: x(p[0]), cy: y(p[1]), r: 4, fill: "var(--t-hot)" }));
+        hoverTime(svg, W, H, pad, x, y, t0, t1, Math.max(s.step || 600, (t1 - t0) / 200), [{ name: "compresseur", c: "var(--t-hot)", pts: hz, f: (v) => v > 0 ? fr(v, 0) + " Hz" : "arrêt" }]);
       }
     }
   }
@@ -262,6 +309,13 @@
         svg.appendChild(el("text", { x: cx, y: top + hh / 2 + 5, "text-anchor": "middle", "font-family": "var(--f-display)", "font-weight": 700, "font-size": 15, fill: "var(--ink)" }, fi(r[1]) + "°"));
         svg.appendChild(el("text", { x: cx, y: top + hh + 11, "text-anchor": "middle", "font-family": "var(--f-data)", "font-size": 9, fill: "var(--mist)" }, fi(r[2])));
       }
+      svg._hv = null;
+      if (days.length) hover(svg, (p) => {
+        const i = Math.floor(p.x / (bw + gap)); if (i < 0 || i >= n) return null;
+        const d = start + i * 86400, r = byDay.get(d); if (!r) return null;
+        return { band: { x: i * (bw + gap) - 1, y: top - 1, width: bw + 2, height: hh + 2 }, html: `<div class="tip-h">${fmtDay(d)}</div>` +
+          row(tcol(r[3]), "max", fr(r[3]) + " °C") + row(tcol(r[1]), "moyenne", fr(r[1]) + " °C") + row(tcol(r[2]), "min", fr(r[2]) + " °C") };
+      });
       if (days.length) [[0, "start"], [15, "middle"], [29, "end"]].forEach(([i, a]) => svg.appendChild(el("text", { x: i === 29 ? W : i * (bw + gap) + (i ? bw / 2 : 0), y: 128, "text-anchor": a, "font-family": "var(--f-data)", "font-size": 10, fill: "var(--mist)" }, fmtX(start + i * 86400, 1e9))));
     }
     // bilan 14 j (estimations : électricité = Hz moyen × 40 W × 24 h ; chaleur = débit moyen × ΔT moyen)
@@ -274,7 +328,7 @@
       const daySum = (maps, d) => { let t = 0, any = false; for (const mp of maps) { const v = mp.get(d); if (v != null) { t += v; any = true; } } return any ? t * 24 : null; };
       const end = Math.floor((NOW?.server || Date.now() / 1000) / 86400) * 86400;
       const days = [...Array(n)].map((_, i) => { const d = end - (n - 1 - i) * 86400; const elk = daySum(U, d), heat = daySum(P, d); return { d, el: elk, heat, cop: elk && heat ? heat / elk : null }; });
-      if (!days.some((d) => d.el != null)) { empty(svg, W, H); return; }
+      if (!days.some((d) => d.el != null)) { empty(svg, W, H); svg._hv = null; return; }
       const ymax = niceTicks(0, Math.max(30, ...days.map((d) => Math.max(d.el || 0, d.heat || 0))));
       const top = ymax[ymax.length - 1];
       const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / top), yc = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / 6);
@@ -293,7 +347,79 @@
       });
       if (cp.length > 1) svg.appendChild(el("path", { d: cp.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(""), fill: "none", stroke: "var(--frost)", "stroke-width": 1.4, "stroke-dasharray": "3 4" }));
       cp.forEach((p) => svg.appendChild(el("circle", { cx: p[0], cy: p[1], r: 3.5, fill: "var(--frost)" })));
+      hover(svg, (p) => {
+        const i = Math.floor((p.x - pad.l) / slot), d = days[i]; if (!d || (d.el == null && d.heat == null)) return null;
+        return { band: { x: pad.l + slot * i + 2, y: pad.t, width: slot - 4, height: H - pad.t - pad.b }, html: `<div class="tip-h">${fmtDay(d.d)}</div>` +
+          row("var(--t-hot)", "électricité", fr(d.el, 1) + " kWh") + row("var(--t-warm)", "chaleur", fr(d.heat, 1) + " kWh") + row("var(--frost)", "COP", fr(d.cop, 2)) };
+      });
     }
+  }
+
+  // ---------- coût de l'électricité (espace privé seulement) ----------
+  const addDay = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * 86400e3).toISOString().slice(0, 10);
+  const eur = (v, d = 2) => fr(v, d);
+  const monthLen = (ym) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7), 0)).getUTCDate();
+  async function renderCost() {
+    const sec = $("cost-sec");
+    if (!NOW?.house) { sec.hidden = true; return; }
+    const c = await getJSON("/api/cost").catch(() => null);
+    if (!c || !c.days) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const T = c.tariff, pHC = T.hc ?? T.base;
+    const by = new Map(c.days.map((d) => [d.d, d]));
+    const price = (d) => (d ? d.hp * T.base + d.hc * pHC : null);
+    const kwh = (d) => (d ? d.hp + d.hc : null);
+    // Maison : estimation au prix moyen payé par la PAC ce jour-là (ou au tarif de base).
+    const houseEur = (d) => (d && d.houseHours ? d.house * (kwh(d) > 0 ? price(d) / kwh(d) : T.base) : null);
+    $("cost-tariff").textContent = T.hc ? `HP ${fr(T.base, 4)} · HC ${fr(T.hc, 4)} €/kWh (${T.hcHours}) · hors abonnement` : `${fr(T.base, 4)} €/kWh · hors abonnement`;
+    const today = by.get(c.today), yday = by.get(addDay(c.today, -1));
+    const last7 = [...Array(7)].map((_, i) => by.get(addDay(c.today, -i))).filter(Boolean);
+    const sum = (list, f) => list.reduce((a, d) => a + (f(d) ?? 0), 0);
+    const ym = c.today.slice(0, 7), month = c.days.filter((d) => d.d.startsWith(ym));
+    const prevYm = addDay(ym + "-01", -1).slice(0, 7), prev = c.days.filter((d) => d.d.startsWith(prevYm));
+    const h7 = sum(last7, (d) => d.hours), perH = h7 ? sum(last7, price) / h7 : 0;
+    const left = Math.max(0, (monthLen(ym) - Number(c.today.slice(8, 10))) * 24 + 24 - (today?.hours ?? 0));
+    const mtd = sum(month, price);
+    $("k-today").textContent = eur(price(today));
+    $("k-today-why").textContent = today ? `${fr(kwh(today), 1)} kWh depuis minuit` : "pas encore de relevé";
+    $("k-yday").textContent = eur(price(yday));
+    $("k-yday-why").textContent = yday ? `${fr(kwh(yday), 1)} kWh` + (yday.houseHours ? ` · maison ≈ ${eur(houseEur(yday), 0)} €` : "") + (yday.hours < 23 ? ` · ${yday.hours} h de relevés` : "") : "pas de relevé";
+    $("k-7d").textContent = eur(sum(last7, price));
+    $("k-7d-why").textContent = last7.length ? `${fr(sum(last7, kwh), 0)} kWh · ${eur(perH * 24)} € par jour en moyenne` : "-";
+    $("k-month").textContent = eur(mtd);
+    $("k-month-why").textContent = `fin de mois ≈ ${eur(mtd + perH * left, 0)} €` +
+      (prev.length ? ` · ${prevYm.slice(5)}/${prevYm.slice(0, 4)} : ${eur(sum(prev, price), 0)} €` + (prev.length < monthLen(prevYm) ? " (partiel)" : "") : "");
+
+    // Barres 30 jours : PAC (HP + HC empilées), contour pointillé = maison estimée.
+    const svg = $("c-cost"), W = 1000, H = 240, pad = { l: 40, r: 10, t: 14, b: 24 }, n = 30;
+    svg.replaceChildren();
+    const days = [...Array(n)].map((_, i) => { const k = addDay(c.today, i - n + 1); return { k, d: by.get(k) }; });
+    if (!days.some((x) => x.d)) { empty(svg, W, H); svg._hv = null; return; }
+    const yt = niceTicks(0, Math.max(1, ...days.map((x) => Math.max(price(x.d) ?? 0, houseEur(x.d) ?? 0))));
+    const top = yt[yt.length - 1], y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / top);
+    const g = el("g", { class: "grid" }), ax = el("g", { class: "axis" });
+    yt.forEach((t) => { g.appendChild(el("line", { x1: pad.l, x2: W - pad.r, y1: y(t), y2: y(t) })); ax.appendChild(el("text", { x: pad.l - 8, y: y(t) + 3, "text-anchor": "end" }, fr(t, t % 1 ? 1 : 0))); });
+    svg.append(g, ax);
+    const slot = (W - pad.l - pad.r) / n, bw = slot * 0.66;
+    days.forEach(({ k, d }, i) => {
+      const x = pad.l + slot * i + (slot - bw) / 2, ts = Date.parse(k + "T00:00:00Z") / 1000;
+      if (i % 5 === 4 || i === 0) svg.appendChild(el("text", { x: x + bw / 2, y: H - 6, "text-anchor": "middle", "font-family": "var(--f-data)", "font-size": 10, fill: "var(--mist)" }, fmtX(ts, 1e9)));
+      if (!d) return;
+      const he = houseEur(d);
+      if (he != null) svg.appendChild(el("rect", { x: x - 2, y: y(he), width: bw + 4, height: y(0) - y(he), fill: "none", stroke: "var(--mist)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
+      const eHp = d.hp * T.base, eHc = d.hc * pHC;
+      svg.appendChild(el("rect", { x, y: y(eHp + eHc), width: bw, height: y(0) - y(eHp), fill: "var(--t-hot)" }));
+      if (eHc > 0) svg.appendChild(el("rect", { x, y: y(eHc), width: bw, height: y(0) - y(eHc), fill: "var(--t-cool)" }));
+    });
+    hover(svg, (p) => {
+      const i = Math.floor((p.x - pad.l) / slot), x = days[i]; if (!x || !x.d) return null;
+      const d = x.d, he = houseEur(d);
+      return { band: { x: pad.l + slot * i + 1, y: pad.t, width: slot - 2, height: H - pad.t - pad.b },
+        html: `<div class="tip-h">${fmtDay(Date.parse(x.k + "T00:00:00Z") / 1000)}${d.hours < 23 ? ` · ${d.hours} h de relevés` : ""}</div>` +
+          row("var(--t-hot)", "PAC", `${eur(price(d))} € · ${fr(kwh(d), 1)} kWh`) +
+          (T.hc ? row("var(--t-hot)", "heures pleines", fr(d.hp, 1) + " kWh") + row("var(--t-cool)", "heures creuses", fr(d.hc, 1) + " kWh") : "") +
+          (he != null ? row("var(--mist)", "maison ≈", `${eur(he)} € · ${fr(d.house, 0)} kWh`) + (d.house > 0 ? row("var(--mist)", "part PAC", fr((100 * kwh(d)) / d.house, 0) + " %") : "") : "") };
+    });
   }
 
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
@@ -392,6 +518,7 @@
     drawBrush();
     renderSeries();
     renderDaily();
+    renderCost();
   }
 
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
