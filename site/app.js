@@ -4,7 +4,9 @@
   const $ = (id) => document.getElementById(id);
   const NS = "http://www.w3.org/2000/svg";
   const el = (t, a = {}, txt) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
-  const fr = (v, d = 1) => v == null || !Number.isFinite(v) ? "-" : v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  // Langue (site/i18n.js) : texte source français, traduit par t() ; nombres et dates au format de la langue.
+  const t = (s, v) => (window.I18N ? window.I18N.t(s, v) : s), LOC = window.I18N?.locale || "fr-FR";
+  const fr = (v, d = 1) => v == null || !Number.isFinite(v) ? "-" : v.toLocaleString(LOC, { minimumFractionDigits: d, maximumFractionDigits: d });
   const W_PER_HZ = 40;      // estimation puissance électrique F2120 : ~40 W par Hz (64 Hz ≈ 2,6 kW)
   const VOLT = 230;
 
@@ -28,7 +30,7 @@
 
   const val = (pid) => { const ids = Array.isArray(pid) ? pid : [pid]; for (const p of ids) { const r = NOW?.points?.[p]; if (r && r.last_val != null) return r.last_val; } return null; };
   // Codes de priorité NIBE (49994 / registre 43086), liste Modbus S-series : pas de code 50.
-  const PRIO = { 10: "arrêt", 20: "eau chaude", 30: "chauffage", 40: "piscine", 60: "rafraîchissement" };
+  const PRIO = { 10: t("arrêt"), 20: t("eau chaude"), 30: t("chauffage"), 40: t("piscine"), 60: t("rafraîchissement") };
   // Priorité NIBE (49994) : 20 = eau chaude. Repli : 44282 « compresseurs actifs, eau chaude » (avis Codex).
   const isEcs = () => { const p = val(ID.prio); return p != null ? p === 20 : val(ID.ecsComp) > 0; };
   // Âge source (horodatage myUplink) d'un point, et écart d'horodatage entre les entrées d'un calcul.
@@ -48,46 +50,46 @@
     const last = NOW?.poll?.last;
     if (!has) {
       w.hidden = false;
-      w.innerHTML = "<b>En attente de la première collecte.</b> Le collecteur interroge myUplink toutes les 5 minutes." +
-        (last && !last.ok ? " La dernière tentative a échoué, nouvel essai dans 5 minutes." : "");
+      w.innerHTML = `<b>${t("En attente de la première collecte.")}</b> ${t("Le collecteur interroge myUplink toutes les 5 minutes.")}` +
+        (last && !last.ok ? " " + t("La dernière tentative a échoué, nouvel essai dans 5 minutes.") : "");
     } else w.hidden = true;
 
     const lastOk = NOW?.poll?.lastOk;
     const age = lastOk ? (NOW.server - lastOk) : null;
-    $("stamp").textContent = lastOk ? "Relevé " + new Date(lastOk * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "Relevé -";
+    $("stamp").textContent = lastOk ? t("Relevé") + " " + new Date(lastOk * 1000).toLocaleString(LOC, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : t("Relevé") + " -";
     $("stamp").classList.toggle("stale", age != null && age > 1200);
     const alarm = (NOW?.alarms || []).length;
-    $("online").textContent = alarm ? alarm + " alarme" + (alarm > 1 ? "s" : "") : has ? "VVM 500 en ligne" : "VVM 500";
+    $("online").textContent = alarm ? t(alarm > 1 ? "{n} alarmes" : "{n} alarme", { n: alarm }) : has ? t("VVM 500 en ligne") : "VVM 500";
     $("dot").style.background = alarm ? "var(--crit)" : age != null && age > 1200 ? "var(--warn)" : "var(--ok)";
-    $("ext").textContent = "Ext. " + fr(val(ID.out)) + " °C";
+    $("ext").textContent = t("Ext.") + " " + fr(val(ID.out)) + " °C";
 
     const hz = val(ID.hz), sup = val(ID.supply), ret = val(ID.ret), calc = val(ID.calc), dm = val(dmId());
     const defrost = val(ID.defrost);
     const ecsOn = isEcs();
-    $("mode").textContent = hz > 0 ? `Compresseur ${fr(hz, 0)} Hz · ${defrost > 0 ? "dégivrage" : ecsOn ? "eau chaude" : PRIO[val(ID.prio)] ?? "chauffage"}` : "Compresseur à l'arrêt" + (PRIO[val(ID.prio)] && val(ID.prio) !== 10 ? ` · priorité ${PRIO[val(ID.prio)]}` : "");
+    $("mode").textContent = hz > 0 ? `${t("Compresseur")} ${fr(hz, 0)} Hz · ${defrost > 0 ? t("dégivrage") : ecsOn ? t("eau chaude") : PRIO[val(ID.prio)] ?? t("chauffage")}` : t("Compresseur à l'arrêt") + (PRIO[val(ID.prio)] && val(ID.prio) !== 10 ? ` · ${t("priorité")} ${PRIO[val(ID.prio)]}` : "");
     $("supply").textContent = fr(sup);
     $("ret").textContent = fr(ret) + "°";
     $("calc").textContent = fr(calc) + "°";
     $("ecs").textContent = fr(val(ID.ecsTop)) + "°";
-    if (dm != null) { $("dmcur").style.left = Math.max(0, Math.min(100, (dm + 300) / 4)) + "%"; $("dmv").textContent = fr(dm, 0); $("dmbar").setAttribute("aria-label", "Degrés-minutes " + fr(dm, 0)); }
+    if (dm != null) { $("dmcur").style.left = Math.max(0, Math.min(100, (dm + 300) / 4)) + "%"; $("dmv").textContent = fr(dm, 0); $("dmbar").setAttribute("aria-label", t("Degrés-minutes") + " " + fr(dm, 0)); }
 
     // cycle
     $("s-hz").textContent = hz != null ? fr(hz, 0) + " Hz" : "-";
     $("s-cond").textContent = fr(val(ID.hp)) + "°";
     $("s-evap").textContent = fr(val(ID.evap)) + "°";
     $("s-lp").textContent = "BP8 " + fr(val(ID.lp)) + (unit(ID.lp) || "");
-    $("s-dis").textContent = fr(val(ID.dis)) + "° refoul.";
-    $("s-suc").textContent = fr(val(ID.suc)) + "° aspi.";
-    $("s-liq").textContent = fr(val(ID.liq)) + "° liquide";
-    $("s-evi").textContent = "DÉTENDEUR " + fr(val(ID.eev), 0) + " · EVI " + fr(val(ID.evi), 0);
-    $("s-ret").textContent = "retour EB101-BT3 " + fr(val(ID.unitRet)) + "°";
-    $("u-sup").textContent = "départ BT12 " + fr(val(ID.condOut)) + "°";
+    $("s-dis").textContent = fr(val(ID.dis)) + "° " + t("refoul.");
+    $("s-suc").textContent = fr(val(ID.suc)) + "° " + t("aspi.");
+    $("s-liq").textContent = fr(val(ID.liq)) + "° " + t("liquide");
+    $("s-evi").textContent = t("DÉTENDEUR") + " " + fr(val(ID.eev), 0) + " · EVI " + fr(val(ID.evi), 0);
+    $("s-ret").textContent = t("retour") + " EB101-BT3 " + fr(val(ID.unitRet)) + "°";
+    $("u-sup").textContent = t("départ") + " BT12 " + fr(val(ID.condOut)) + "°";
     $("o-bt28").textContent = "BT28 " + fr(val(ID.bt28)) + "°";
     $("o-bt1").textContent = "BT1 " + fr(val(ID.out)) + "°";
     $("h-ecs").textContent = fr(val(ID.ecsTop)) + "°";
     $("h-ecs2").textContent = "BT6 " + fr(val(ID.ecsChg)) + "°";
-    $("h-add").textContent = "après appoint BT63 " + fr(val("40121")) + "°";
-    $("h-addf").textContent = "facteur " + fr(val(ID.addFactor));
+    $("h-add").textContent = t("après appoint") + " BT63 " + fr(val("40121")) + "°";
+    $("h-addf").textContent = t("facteur") + " " + fr(val(ID.addFactor));
     $("h-gp12").textContent = "GP12 " + fr(val(ID.gp12), 0) + " %";
     $("h-gp1").textContent = "GP1 " + fr(val(ID.gp1), 0) + " %";
     $("h-sup").textContent = "BT2 " + fr(sup) + "°";
@@ -123,7 +125,7 @@
   }
 
   function chip(label, v, u, why, st, level, na) {
-    return `<div class="chip${v == null ? " na" : ""}" style="--s:var(--${v == null ? "mist" : level})"><span class="label">${label}</span><b>${v == null ? "-" : v}${u ? `<small>${u}</small>` : ""}</b><span class="why">${why}</span><span class="st">${v == null ? (na || "Pas encore de donnée") : st}</span></div>`;
+    return `<div class="chip${v == null ? " na" : ""}" style="--s:var(--${v == null ? "mist" : level})"><span class="label">${label}</span><b>${v == null ? "-" : v}${u ? `<small>${u}</small>` : ""}</b><span class="why">${why}</span><span class="st">${v == null ? (na || t("Pas encore de donnée")) : st}</span></div>`;
   }
   function band(x, okLo, okHi, warnLo, warnHi) { if (x == null) return "mist"; if (x >= okLo && x <= okHi) return "ok"; if (x >= warnLo && x <= warnHi) return "warn"; return "crit"; }
 
@@ -137,16 +139,16 @@
     const dt = val(ID.supply) != null && val(ID.ret) != null ? val(ID.supply) - val(ID.ret) : null;
     const dis = val(ID.dis);
     const c7 = NOW?.counters7d || {};
-    let cyc = null, cycWhy = "sur 7 jours";
+    let cyc = null, cycWhy = t("sur 7 jours");
     if (c7[ID.starts] && c7[ID.hours] && val(ID.starts) != null) {
       const ds = val(ID.starts) - c7[ID.starts].value, dh = val(ID.hours) - c7[ID.hours].value;
-      if (ds > 0) { cyc = (dh * 60) / ds; cycWhy = `${fr(ds, 0)} démarrages, ${fr(dh, 0)} h`; }
+      if (ds > 0) { cyc = (dh * 60) / ds; cycWhy = t("{n} démarrages, {h} h", { n: fr(ds, 0), h: fr(dh, 0) }); }
     }
     const af = val(ID.addFactor);
     const afOld = c7[ID.addFactor]?.value;
     const afDelta = af != null && afOld != null ? af - afOld : null;
     // Dégivrage : cycle inversé (vanne 4 voies), les écarts frigo et eau n'ont plus de sens.
-    const defrost = val(ID.defrost) > 0, live = hz > 0 && !defrost, ecs = isEcs(), off = defrost ? "Dégivrage" : "Compresseur à l'arrêt";
+    const defrost = val(ID.defrost) > 0, live = hz > 0 && !defrost, ecs = isEcs(), off = defrost ? t("Dégivrage") : t("Compresseur à l'arrêt");
     // Chauffage : la VVM 500 alimente les radiateurs depuis sa cuve (GP1). QN10/QN35 ne basculent que le circuit de charge :
     // l'écart BT2 − BT3 reste valable pendant l'eau chaude et le dégivrage, il suffit que GP1 tourne.
     const heating = val(ID.gp1) > 0;
@@ -157,19 +159,19 @@
     const steady = NOW?.stable !== false, SKEW = 600;
     const ok = (...ids) => skew(...ids) <= SKEW;
     const shOk = ok(ID.suc, ID.lp), scOk = ok(ID.hp, ID.liq), flOk = ok(ID.condOut, ID.unitRet, ID.heat);
-    const lvl = (b) => (steady ? b : "mist"), stx = (s) => (steady ? s : "Régime transitoire");
+    const lvl = (b) => (steady ? b : "mist"), stx = (s) => (steady ? s : t("Régime transitoire")), late = t("Relevés décalés");
     const html = [
-      chip("Surchauffe", live && shOk ? fr(sh) : null, "K", "aspiration − saturation BP8", stx(band(sh, 4, 10, 2, 14) === "ok" ? "Saine · 4 à 10 K" : "À surveiller"), lvl(band(sh, 4, 10, 2, 14)), live ? "Relevés décalés" : off),
-      chip("Sous-refroid.", live && scOk ? fr(sc) : null, "K", "saturation BP9 − liquide", stx(band(sc, 3, 9, 2, 12) === "ok" ? "Correct · 3 à 9 K" : "À surveiller"), lvl(band(sc, 3, 9, 2, 12)), live ? "Relevés décalés" : off),
+      chip(t("Surchauffe"), live && shOk ? fr(sh) : null, "K", t("aspiration − saturation BP8"), stx(band(sh, 4, 10, 2, 14) === "ok" ? t("Saine · 4 à 10 K") : t("À surveiller")), lvl(band(sh, 4, 10, 2, 14)), live ? late : off),
+      chip(t("Sous-refroid."), live && scOk ? fr(sc) : null, "K", t("saturation BP9 − liquide"), stx(band(sc, 3, 9, 2, 12) === "ok" ? t("Correct · 3 à 9 K") : t("À surveiller")), lvl(band(sc, 3, 9, 2, 12)), live ? late : off),
       // Circuit chauffage maison (BT2 départ, BT3 retour, pompe GP1). Sans objet pendant l'eau chaude : les vannes QN10/QN35 envoient l'eau à la cuve.
-      chip("Écart chauffage", heating ? fr(dt) : null, "K", "circuit radiateurs · BT2 − BT3", band(dt, 3, 9, 2, 12) === "ok" ? "Normal · 3 à 9 K" : "Débit à vérifier", band(dt, 3, 9, 2, 12),
-        heating ? null : "Pompe GP1 à l'arrêt"),
+      chip(t("Écart chauffage"), heating ? fr(dt) : null, "K", t("circuit radiateurs · BT2 − BT3"), band(dt, 3, 9, 2, 12) === "ok" ? t("Normal · 3 à 9 K") : t("Débit à vérifier"), band(dt, 3, 9, 2, 12),
+        heating ? null : t("Pompe GP1 à l'arrêt")),
       // Plage de débit chauffage F2120-20 : 0,19 à 0,75 l/s = 11 à 45 l/min (manuel installateur), minimum dégivrage 0,48 l/s.
-      chip("Débit de charge", flow != null && flOk ? fr(flow, 0) : null, "l/min", `estimé · ΔT ${fr(dtc)} K` + (steady && qh > 0 && val(ID.pNow) > 0 ? ` · COP ${fr(qh / val(ID.pNow), 1)}` : ""),
-        stx(flow >= 11 && flow <= 45 ? "Plage F2120 · 11 à 45" : "Hors plage F2120"), lvl(flow == null ? "mist" : flow >= 11 && flow <= 45 ? "ok" : "warn"), !live ? off : !flOk ? "Relevés décalés" : "ΔT trop faible"),
-      chip("Refoulement", dis != null ? fr(dis) : null, "°C", "limite vers 110 °C", dis < 100 ? "Marge OK" : dis < 110 ? "Chaud" : "Trop chaud", dis == null ? "mist" : dis < 100 ? "ok" : dis < 110 ? "warn" : "crit"),
-      chip("Cycle moyen", cyc != null ? fr(cyc, 0) : null, "min", cycWhy, cyc >= 30 ? "Pas de cycles courts" : "Cycles courts", cyc == null ? "mist" : cyc >= 30 ? "ok" : cyc >= 15 ? "warn" : "crit"),
-      chip("Appoint élec.", af != null ? fr(af) : null, "", afDelta == null ? "facteur temps" : afDelta > 0 ? `+${fr(afDelta)} sur 7 j` : "stable sur 7 j", afDelta > 0 ? "A servi cette semaine" : "Pas utilisé", af == null ? "mist" : afDelta > 0 ? "warn" : "ok"),
+      chip(t("Débit de charge"), flow != null && flOk ? fr(flow, 0) : null, "l/min", `${t("estimé")} · ΔT ${fr(dtc)} K` + (steady && qh > 0 && val(ID.pNow) > 0 ? ` · COP ${fr(qh / val(ID.pNow), 1)}` : ""),
+        stx(flow >= 11 && flow <= 45 ? t("Plage F2120 · 11 à 45") : t("Hors plage F2120")), lvl(flow == null ? "mist" : flow >= 11 && flow <= 45 ? "ok" : "warn"), !live ? off : !flOk ? late : t("ΔT trop faible")),
+      chip(t("Refoulement"), dis != null ? fr(dis) : null, "°C", t("limite vers 110 °C"), dis < 100 ? t("Marge OK") : dis < 110 ? t("Chaud") : t("Trop chaud"), dis == null ? "mist" : dis < 100 ? "ok" : dis < 110 ? "warn" : "crit"),
+      chip(t("Cycle moyen"), cyc != null ? fr(cyc, 0) : null, "min", cycWhy, cyc >= 30 ? t("Pas de cycles courts") : t("Cycles courts"), cyc == null ? "mist" : cyc >= 30 ? "ok" : cyc >= 15 ? "warn" : "crit"),
+      chip(t("Appoint élec."), af != null ? fr(af) : null, "", afDelta == null ? t("facteur temps") : afDelta > 0 ? t("+{v} sur 7 j", { v: fr(afDelta) }) : t("stable sur 7 j"), afDelta > 0 ? t("A servi cette semaine") : t("Pas utilisé"), af == null ? "mist" : afDelta > 0 ? "warn" : "ok"),
     ];
     $("diag").innerHTML = html.join("");
   }
@@ -182,11 +184,11 @@
     const prod = val(ID.prodH) != null ? add2(ID.prodH, ID.prodE) : null;
     const used = val(ID.useH) != null ? add2(ID.useH, ID.useE) + add2(ID.addH, ID.addE) : null;
     $("w-el").textContent = pel != null ? fr(pel, 0) : "-";
-    $("w-el").parentElement.nextElementSibling.textContent = pkw != null ? "mesuré par la PAC, maintenant" : "estimé depuis la fréquence du compresseur";
+    $("w-el").parentElement.nextElementSibling.textContent = pkw != null ? t("mesuré par la PAC, maintenant") : t("estimé depuis la fréquence du compresseur");
     $("w-heat").textContent = prod != null ? fr(prod * 1000, 0) : "-";
-    $("w-heat-why").textContent = prod != null ? `moyenne de l'heure passée · ${fr(prod, 2)} kWh` : "journal d'énergie non remonté";
+    $("w-heat-why").textContent = prod != null ? t("moyenne de l'heure passée · {v} kWh", { v: fr(prod, 2) }) : t("journal d'énergie non remonté");
     $("w-cop").textContent = prod != null && used > 0 ? fr(prod / used, 2) : "-";
-    $("w-cop").nextElementSibling.textContent = used > 0 ? `heure passée · ${fr(used, 2)} kWh consommés` : "compresseur à l'arrêt sur l'heure passée";
+    $("w-cop").nextElementSibling.textContent = used > 0 ? t("heure passée · {v} kWh consommés", { v: fr(used, 2) }) : t("compresseur à l'arrêt sur l'heure passée");
     const a = [val(ID.be1), val(ID.be2), val(ID.be3)];
     const sum = a.every((x) => x != null) ? a.reduce((s, x) => s + x, 0) : null;
     // Phases maison : non publiées tant que le site est public (révèlent la présence).
@@ -196,7 +198,7 @@
   }
 
   // ---------- graphiques ----------
-  const fmtX = (t, span) => { const d = new Date(t * 1000); return span <= 86400 ? d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }); };
+  const fmtX = (t, span) => { const d = new Date(t * 1000); return span <= 86400 ? d.toLocaleTimeString(LOC, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(LOC, { day: "2-digit", month: "2-digit" }); };
 
   function axes(svg, W, H, pad, t0, t1, ymin, ymax, yt) {
     svg.replaceChildren();
@@ -210,13 +212,13 @@
   }
   const line = (pts, x, y) => pts.map((p, i) => (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1)).join("");
   const niceTicks = (lo, hi, n = 4) => { const s = Math.pow(10, Math.floor(Math.log10((hi - lo) / n || 1))); const st = [1, 2, 5, 10].map((m) => m * s).find((m) => (hi - lo) / m <= n) || s * 10; const a = Math.floor(lo / st) * st, b = Math.ceil(hi / st) * st; const r = []; for (let v = a; v <= b + 1e-9; v += st) r.push(Math.round(v * 100) / 100); return r; };
-  const empty = (svg, W, H) => { svg.replaceChildren(el("text", { x: W / 2, y: H / 2, "text-anchor": "middle", "font-family": "var(--f-data)", "font-size": 12, fill: "var(--mist)" }, "Courbe disponible après quelques collectes")); };
+  const empty = (svg, W, H) => { svg.replaceChildren(el("text", { x: W / 2, y: H / 2, "text-anchor": "middle", "font-family": "var(--f-data)", "font-size": 12, fill: "var(--mist)" }, t("Courbe disponible après quelques collectes"))); };
 
   // ---------- infobulle au survol ----------
   // Chaque graphique enregistre une fonction (point SVG) -> { html, x, dots } ; une seule bulle partagée.
   const tip = document.createElement("div"); tip.className = "tip num"; tip.hidden = true; tip.setAttribute("role", "tooltip"); document.body.appendChild(tip);
-  const fmtTip = (t) => new Date(t * 1000).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  const fmtDay = (t) => new Date(t * 1000).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "UTC" });
+  const fmtTip = (t) => new Date(t * 1000).toLocaleString(LOC, { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const fmtDay = (t) => new Date(t * 1000).toLocaleDateString(LOC, { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "UTC" });
   const row = (c, name, v) => `<div><i style="background:${c}"></i>${name}<b>${v}</b></div>`;
   let tipOwner = null;
   const hideTip = () => { tipOwner?.querySelector(".hv")?.remove(); tip.hidden = true; tipOwner = null; };
@@ -285,7 +287,7 @@
         if (out.length) svg.appendChild(el("path", { d: line(out, x, y), fill: "none", stroke: "var(--t-cold)", "stroke-width": 1.5 }));
         svg.appendChild(el("path", { d: line(sup, x, y), fill: "none", stroke: "var(--t-warm)", "stroke-width": 2.2 }));
         const deg = (v) => fr(v) + " °C", tol = Math.max(s.step || 600, (t1 - t0) / 200);
-        hoverTime(svg, W, H, pad, x, y, t0, t1, tol, [{ name: "départ", c: "var(--t-warm)", pts: sup, f: deg }, { name: "calculé", c: "var(--mist)", pts: cal, f: deg }, { name: "extérieur", c: "var(--t-cold)", pts: out, f: deg }]);
+        hoverTime(svg, W, H, pad, x, y, t0, t1, tol, [{ name: t("départ"), c: "var(--t-warm)", pts: sup, f: deg }, { name: t("calculé"), c: "var(--mist)", pts: cal, f: deg }, { name: t("extérieur"), c: "var(--t-cold)", pts: out, f: deg }]);
         [[sup, "var(--t-warm)"], [cal, "var(--mist)"], [out, "var(--t-cold)"]].forEach(([ser, c]) => { if (!ser.length) return; const p = ser[ser.length - 1]; svg.appendChild(el("circle", { cx: x(p[0]), cy: y(p[1]), r: 4, fill: c })); svg.appendChild(el("text", { x: x(p[0]) + 10, y: y(p[1]) + 4, fill: c, "font-family": "var(--f-data)", "font-size": 12 }, fr(p[1]) + "°")); });
       }
     }
@@ -300,7 +302,7 @@
         const bw = Math.max(1, ((W - pad.l - pad.r) / ((t1 - t0) / (s.step || 600))) * 0.8);
         dm.forEach((p, i) => { const y0 = y(0), y1 = y(p[1]); svg.appendChild(el("rect", { x: x(p[0]) - bw / 2, y: Math.min(y0, y1), width: bw, height: Math.max(1, Math.abs(y1 - y0)), fill: p[1] < 0 ? "var(--t-cold)" : "var(--t-warm)", opacity: i === dm.length - 1 ? 1 : 0.75 })); });
         svg.appendChild(el("line", { x1: pad.l, x2: W - pad.r, y1: y(-60), y2: y(-60), stroke: "var(--frost)", "stroke-dasharray": "2 4" }));
-        hoverTime(svg, W, H, pad, x, y, t0, t1, Math.max(s.step || 600, (t1 - t0) / 200), [{ name: "degrés-minutes", c: "var(--t-cold)", pts: dm, f: (v) => fr(v, 0) + " DM" }]);
+        hoverTime(svg, W, H, pad, x, y, t0, t1, Math.max(s.step || 600, (t1 - t0) / 200), [{ name: t("degrés-minutes"), c: "var(--t-cold)", pts: dm, f: (v) => fr(v, 0) + " DM" }]);
       }
     }
     // compresseur
@@ -315,7 +317,7 @@
         svg.appendChild(el("path", { d: d + `L${x(hz[hz.length - 1][0])} ${y(0)} L${x(hz[0][0])} ${y(0)} Z`, fill: "var(--t-hot)", opacity: 0.18 }));
         svg.appendChild(el("path", { d, fill: "none", stroke: "var(--t-hot)", "stroke-width": 1.6 }));
         const p = hz[hz.length - 1]; svg.appendChild(el("circle", { cx: x(p[0]), cy: y(p[1]), r: 4, fill: "var(--t-hot)" }));
-        hoverTime(svg, W, H, pad, x, y, t0, t1, Math.max(s.step || 600, (t1 - t0) / 200), [{ name: "compresseur", c: "var(--t-hot)", pts: hz, f: (v) => v > 0 ? fr(v, 0) + " Hz" : "arrêt" }]);
+        hoverTime(svg, W, H, pad, x, y, t0, t1, Math.max(s.step || 600, (t1 - t0) / 200), [{ name: t("compresseur"), c: "var(--t-hot)", pts: hz, f: (v) => v > 0 ? fr(v, 0) + " Hz" : t("arrêt") }]);
       }
     }
   }
@@ -347,7 +349,7 @@
         const i = Math.floor(p.x / (bw + gap)); if (i < 0 || i >= n) return null;
         const d = start + i * 86400, r = byDay.get(d); if (!r) return null;
         return { band: { x: i * (bw + gap) - 1, y: top - 1, width: bw + 2, height: hh + 2 }, html: `<div class="tip-h">${fmtDay(d)}</div>` +
-          row(tcol(r[3]), "max", fr(r[3]) + " °C") + row(tcol(r[1]), "moyenne", fr(r[1]) + " °C") + row(tcol(r[2]), "min", fr(r[2]) + " °C") };
+          row(tcol(r[3]), t("max"), fr(r[3]) + " °C") + row(tcol(r[1]), t("moyenne"), fr(r[1]) + " °C") + row(tcol(r[2]), t("min"), fr(r[2]) + " °C") };
       });
       if (days.length) [[0, "start"], [15, "middle"], [29, "end"]].forEach(([i, a]) => svg.appendChild(el("text", { x: i === 29 ? W : i * (bw + gap) + (i ? bw / 2 : 0), y: 128, "text-anchor": a, "font-family": "var(--f-data)", "font-size": 10, fill: "var(--mist)" }, fmtX(start + i * 86400, 1e9))));
     }
@@ -383,7 +385,7 @@
       hover(svg, (p) => {
         const i = Math.floor((p.x - pad.l) / slot), d = days[i]; if (!d || (d.el == null && d.heat == null)) return null;
         return { band: { x: pad.l + slot * i + 2, y: pad.t, width: slot - 4, height: H - pad.t - pad.b }, html: `<div class="tip-h">${fmtDay(d.d)}</div>` +
-          row("var(--t-hot)", "électricité", fr(d.el, 1) + " kWh") + row("var(--t-warm)", "chaleur", fr(d.heat, 1) + " kWh") + row("var(--frost)", "COP", fr(d.cop, 2)) };
+          row("var(--t-hot)", t("électricité"), fr(d.el, 1) + " kWh") + row("var(--t-warm)", t("chaleur"), fr(d.heat, 1) + " kWh") + row("var(--frost)", "COP", fr(d.cop, 2)) };
       });
     }
   }
@@ -411,8 +413,8 @@
     const overEur = (d) => d?.overEur ?? 0;
     const anyMeter = c.days.some(meter);
     $("cost-hc-leg").hidden = !T.hc;
-    $("cost-house-leg").textContent = anyMeter ? "maison, compteur Smarty (Leneda)" : "maison, estimation 3 phases × 230 V";
-    $("cost-tariff").textContent = `${T.label} · ` + (T.monthly ? `fixe ${eur(T.monthly)} €/mois` : "hors abonnement");
+    $("cost-house-leg").textContent = anyMeter ? t("maison, compteur Smarty (Leneda)") : t("maison, estimation 3 phases × 230 V");
+    $("cost-tariff").textContent = `${T.label} · ` + (T.monthly ? t("fixe {v} €/mois", { v: eur(T.monthly) }) : t("hors abonnement"));
     const today = by.get(c.today), yday = by.get(addDay(c.today, -1));
     const last7 = [...Array(7)].map((_, i) => by.get(addDay(c.today, -i))).filter(Boolean);
     const sum = (list, f) => list.reduce((a, d) => a + (f(d) ?? 0), 0);
@@ -422,11 +424,11 @@
     const left = Math.max(0, (monthLen(ym) - Number(c.today.slice(8, 10))) * 24 + 24 - (today?.hours ?? 0));
     const mtd = sum(month, price);
     $("k-today").textContent = eur(price(today));
-    $("k-today-why").textContent = today?.hours ? `${fr(kwh(today), 1)} kWh depuis minuit` : "pas encore de relevé";
+    $("k-today-why").textContent = today?.hours ? t("{v} kWh depuis minuit", { v: fr(kwh(today), 1) }) : t("pas encore de relevé");
     $("k-yday").textContent = eur(price(yday));
-    $("k-yday-why").textContent = yday?.hours ? `${fr(kwh(yday), 1)} kWh` + (houseKwh(yday) != null ? ` · maison ${meter(yday) ? "" : "≈ "}${eur(houseEur(yday), 0)} €` : "") + (yday.hours < 23 ? ` · ${yday.hours} h de relevés` : "") : "pas de relevé";
+    $("k-yday-why").textContent = yday?.hours ? `${fr(kwh(yday), 1)} kWh` + (houseKwh(yday) != null ? ` · ${t("maison")} ${meter(yday) ? "" : "≈ "}${eur(houseEur(yday), 0)} €` : "") + (yday.hours < 23 ? " · " + t("{n} h de relevés", { n: yday.hours }) : "") : t("pas de relevé");
     $("k-7d").textContent = eur(sum(last7, price));
-    $("k-7d-why").textContent = last7.length ? `${fr(sum(last7, kwh), 0)} kWh · ${eur(perH * 24)} € par jour en moyenne` : "-";
+    $("k-7d-why").textContent = last7.length ? t("{k} kWh · {e} € par jour en moyenne", { k: fr(sum(last7, kwh), 0), e: eur(perH * 24) }) : "-";
     $("k-month").textContent = eur(mtd);
     const hm = month.filter((d) => houseKwh(d) != null);
     $("house-cost-tile").hidden = !hm.length;
@@ -434,13 +436,13 @@
       const peak = Math.max(0, ...hm.filter(meter).map((d) => d.peak ?? 0)), ov = sum(hm, overEur), sh = hm.filter((d) => d.sharedQ);
       const gain = sum(sh, (d) => d.gain);
       $("k-house").textContent = eur(sum(hm, houseEur));
-      $("k-house-why").textContent = `${fr(sum(hm, houseKwh), 0)} kWh` + (hm.every(meter) ? "" : hm.some(meter) ? " (en partie estimé)" : " (estimation)") +
-        (peak ? ` · pic ${fr(peak, 1)} kW` + (T.pref ? ` / Pref ${fr(T.pref, 0)} kW` : "") : "") + (ov > 0 ? ` · dépassement ${eur(ov)} €` : "") +
-        (sh.length ? ` · partage ${fr(sum(sh, (d) => d.shared), 0)} kWh, ${gain >= 0 ? "économie" : "surcoût"} ${eur(Math.abs(gain))} €` : "");
+      $("k-house-why").textContent = `${fr(sum(hm, houseKwh), 0)} kWh` + (hm.every(meter) ? "" : hm.some(meter) ? " " + t("(en partie estimé)") : " " + t("(estimation)")) +
+        (peak ? ` · ${t("pic")} ${fr(peak, 1)} kW` + (T.pref ? ` / Pref ${fr(T.pref, 0)} kW` : "") : "") + (ov > 0 ? ` · ${t("dépassement")} ${eur(ov)} €` : "") +
+        (sh.length ? ` · ${t("partage")} ${fr(sum(sh, (d) => d.shared), 0)} kWh, ${gain >= 0 ? t("économie") : t("surcoût")} ${eur(Math.abs(gain))} €` : "");
     }
     // Projection : consommation au rythme des 7 derniers jours ; la part fixe (si réglée) s'ajoute au mois entier.
-    $("k-month-why").textContent = `fin de mois ≈ ${eur(mtd + perH * left + (T.monthly ?? 0), 0)} €${T.monthly ? " part fixe comprise" : ""}` +
-      (prev.length ? ` · ${prevYm.slice(5)}/${prevYm.slice(0, 4)} : ${eur(sum(prev, price), 0)} €` + (prev.length < monthLen(prevYm) ? " (partiel)" : "") : "");
+    $("k-month-why").textContent = `${t("fin de mois")} ≈ ${eur(mtd + perH * left + (T.monthly ?? 0), 0)} €${T.monthly ? " " + t("part fixe comprise") : ""}` +
+      (prev.length ? ` · ${prevYm.slice(5)}/${prevYm.slice(0, 4)} : ${eur(sum(prev, price), 0)} €` + (prev.length < monthLen(prevYm) ? " " + t("(partiel)") : "") : "");
 
     // Barres 30 jours : PAC (HP + HC empilées en tarif simple), contour pointillé = maison.
     const svg = $("c-cost"), W = 1000, H = 240, pad = { l: 40, r: 10, t: 14, b: 24 }, n = 30;
@@ -468,17 +470,17 @@
       const i = Math.floor((p.x - pad.l) / slot), x = days[i]; if (!x || !x.d) return null;
       const d = x.d, he = houseEur(d);
       return { band: { x: pad.l + slot * i + 1, y: pad.t, width: slot - 2, height: H - pad.t - pad.b },
-        html: `<div class="tip-h">${fmtDay(Date.parse(x.k + "T00:00:00Z") / 1000)}${d.hours && d.hours < 23 ? ` · ${d.hours} h de relevés` : ""}</div>` +
-          (d.hours ? row("var(--t-hot)", "PAC", `${eur(price(d))} € · ${fr(kwh(d), 1)} kWh`) : row("var(--mist)", "PAC", "pas de relevé")) +
-          (T.hc && d.hours ? row("var(--t-hot)", "heures pleines", fr(d.hp, 1) + " kWh") + row("var(--t-cool)", "heures creuses", fr(d.hc, 1) + " kWh") : "") +
-          (he != null ? row("var(--mist)", meter(d) ? "maison (compteur)" : "maison ≈", `${eur(he)} € · ${fr(houseKwh(d), 1)} kWh`) +
-            (houseKwh(d) > 0 && d.hours >= (meter(d) ? d.gridQ / 4 : d.houseHours) - 1 ? row("var(--mist)", "part PAC", fr((100 * kwh(d)) / houseKwh(d), 0) + " %") : "") : "") +
-          (meter(d) && d.peak != null ? row("var(--frost)", "pic 15 min", fr(d.peak, 1) + " kW" + (T.pref ? ` · Pref ${fr(T.pref, 0)}` : "")) : "") +
-          (meter(d) ? (d.sharedQ ? row("var(--t-cool)", "communauté", `${fr(d.shared, 1)} kWh · ${fr((100 * d.shared) / houseKwh(d), 0)} %`) +
-            (T.shared ? row("var(--t-cool)", d.gain >= 0 ? "économie partage" : "surcoût partage", `${eur(Math.abs(d.gain))} €`) : "")
-            : row("var(--mist)", "communauté", "pas encore publié")) : "") +
-          (overEur(d) > 0 ? row("var(--t-hot)", "dépassement", `${fr(d.over, 2)} kWh · ${eur(overEur(d))} €`) : "") +
-          (d.gridQ && !meter(d) ? row("var(--mist)", "compteur", `${fr(d.gridQ / 4, 1)} h publiées sur 24`) : "") };
+        html: `<div class="tip-h">${fmtDay(Date.parse(x.k + "T00:00:00Z") / 1000)}${d.hours && d.hours < 23 ? " · " + t("{n} h de relevés", { n: d.hours }) : ""}</div>` +
+          (d.hours ? row("var(--t-hot)", "PAC", `${eur(price(d))} € · ${fr(kwh(d), 1)} kWh`) : row("var(--mist)", "PAC", t("pas de relevé"))) +
+          (T.hc && d.hours ? row("var(--t-hot)", t("heures pleines"), fr(d.hp, 1) + " kWh") + row("var(--t-cool)", t("heures creuses"), fr(d.hc, 1) + " kWh") : "") +
+          (he != null ? row("var(--mist)", meter(d) ? t("maison (compteur)") : t("maison") + " ≈", `${eur(he)} € · ${fr(houseKwh(d), 1)} kWh`) +
+            (houseKwh(d) > 0 && d.hours >= (meter(d) ? d.gridQ / 4 : d.houseHours) - 1 ? row("var(--mist)", t("part PAC"), fr((100 * kwh(d)) / houseKwh(d), 0) + " %") : "") : "") +
+          (meter(d) && d.peak != null ? row("var(--frost)", t("pic 15 min"), fr(d.peak, 1) + " kW" + (T.pref ? ` · Pref ${fr(T.pref, 0)}` : "")) : "") +
+          (meter(d) ? (d.sharedQ ? row("var(--t-cool)", t("communauté"), `${fr(d.shared, 1)} kWh · ${fr((100 * d.shared) / houseKwh(d), 0)} %`) +
+            (T.shared ? row("var(--t-cool)", d.gain >= 0 ? t("économie partage") : t("surcoût partage"), `${eur(Math.abs(d.gain))} €`) : "")
+            : row("var(--mist)", t("communauté"), t("pas encore publié"))) : "") +
+          (overEur(d) > 0 ? row("var(--t-hot)", t("dépassement"), `${fr(d.over, 2)} kWh · ${eur(overEur(d))} €`) : "") +
+          (d.gridQ && !meter(d) ? row("var(--mist)", t("compteur"), t("{n} h publiées sur 24", { n: fr(d.gridQ / 4, 1) })) : "") };
     });
   }
 
@@ -488,8 +490,8 @@
   const BW = 1000, BH = 74, BP = { l: 8, r: 8, t: 6, b: 18 };
   const bx = (t) => BP.l + ((BW - BP.l - BP.r) * (t - DOM[0])) / (DOM[1] - DOM[0]);
   const bt = (x) => DOM[0] + ((x - BP.l) / (BW - BP.l - BP.r)) * (DOM[1] - DOM[0]);
-  const fmtSpan = (s) => s <= 86400 + 60 ? `${fr(s / 3600, 0)} h` : `${fr(s / 86400, s < 7 * 86400 && s % 86400 > 600 ? 1 : 0)} j`;
-  const fmtWhen = (t) => new Date(t * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const fmtSpan = (s, long) => s <= 86400 + 60 ? `${fr(s / 3600, 0)} ${t(long ? "heures" : "h")}` : `${fr(s / 86400, s < 7 * 86400 && s % 86400 > 600 ? 1 : 0)} ${t(long ? "jours" : "j")}`;
+  const fmtWhen = (t) => new Date(t * 1000).toLocaleString(LOC, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
   async function loadOverview() {
     OVER = await getJSON(`/api/series?range=all&pids=${ID.supply},${ID.out}`).catch(() => ({}));
@@ -514,7 +516,7 @@
       if (sup.length > 1) svg.appendChild(el("path", { d: path(sup) + `L${bx(sup[sup.length - 1][0])} ${BH - BP.b} L${bx(sup[0][0])} ${BH - BP.b} Z`, fill: "var(--t-warm)", opacity: 0.22 }));
       if (sup.length > 1) svg.appendChild(el("path", { d: path(sup), fill: "none", stroke: "var(--t-warm)", "stroke-width": 1.2 }));
       if (out.length > 1) svg.appendChild(el("path", { d: path(out), fill: "none", stroke: "var(--t-cold)", "stroke-width": 1 }));
-    } else svg.appendChild(el("text", { x: BW / 2, y: BH / 2, "text-anchor": "middle", "font-family": "var(--f-data)", "font-size": 11, fill: "var(--mist)" }, "L'historique se remplit au fil des collectes"));
+    } else svg.appendChild(el("text", { x: BW / 2, y: BH / 2, "text-anchor": "middle", "font-family": "var(--f-data)", "font-size": 11, fill: "var(--mist)" }, t("L'historique se remplit au fil des collectes")));
     const x0 = bx(WIN[0]), x1 = bx(WIN[1]), yT = BP.t, yH = BH - BP.t - BP.b;
     svg.appendChild(el("rect", { class: "shade", x: BP.l, y: yT, width: Math.max(0, x0 - BP.l), height: yH }));
     svg.appendChild(el("rect", { class: "shade", x: x1, y: yT, width: Math.max(0, BW - BP.r - x1), height: yH }));
@@ -523,9 +525,9 @@
       svg.appendChild(el("rect", { class: "grip-hit", "data-g": side, x: x - 9, y: yT, width: 18, height: yH }));
       svg.appendChild(el("rect", { class: "grip", "data-g": side, x: x - 2, y: yT + yH / 2 - 11, width: 4, height: 22, rx: 2 }));
     });
-    const lbl = `${fmtWhen(WIN[0])} → ${fmtWhen(WIN[1])} · ${fmtSpan(WIN[1] - WIN[0])}${FOLLOW ? " · en direct" : ""}`;
+    const lbl = `${fmtWhen(WIN[0])} → ${fmtWhen(WIN[1])} · ${fmtSpan(WIN[1] - WIN[0])}${FOLLOW ? " · " + t("en direct") : ""}`;
     $("brush-label").textContent = lbl; svg.setAttribute("aria-valuetext", lbl);
-    $("range-h").textContent = fmtSpan(WIN[1] - WIN[0]).replace(" h", " heures").replace(" j", " jours");
+    $("range-h").textContent = fmtSpan(WIN[1] - WIN[0], true);
   }
 
   function setWin(a, b, commit) {

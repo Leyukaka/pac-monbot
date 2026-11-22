@@ -154,6 +154,7 @@ There is **no built-in login**, and the server listens on `127.0.0.1` only. To r
 - Add `?demo=30|64|110|defrost` to the URL to preview the animated schematic when the compressor is idle. It changes the display only.
 - Energy figures come from the NIBE energy log: point 32486 for instantaneous power, 3249x for last-hour totals. Without them, the fallback estimate is 40 W per Hz.
 - On the free myUplink plan, the history route returns 403, so past data cannot be imported without Premium.
+- The site is in French, English and German. The language follows the browser (`navigator.languages`, English if none matches), and the FR · EN · DE links in the top bar override it (remembered in `localStorage`, or `?lang=xx`). French text is the key: `site/i18n-dict.js` maps it to English and German, and `python tools/i18n-check.py` lists any text still missing a translation.
 - This project is not affiliated with NIBE or myUplink.
 
 MIT licence.

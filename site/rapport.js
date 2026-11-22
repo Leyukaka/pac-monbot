@@ -5,12 +5,17 @@
   const $ = (id) => document.getElementById(id);
   const NS = "http://www.w3.org/2000/svg";
   const el = (t, a = {}, txt) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
-  const fr = (v, d = 1) => v == null || !Number.isFinite(v) ? "-" : v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  // Langue (site/i18n.js) : texte source français traduit par tr() ; nombres et dates au format de la langue.
+  const tr = (s, v) => (window.I18N ? window.I18N.t(s, v) : s), LOC = window.I18N?.locale || "fr-FR";
+  const fr = (v, d = 1) => v == null || !Number.isFinite(v) ? "-" : v.toLocaleString(LOC, { minimumFractionDigits: d, maximumFractionDigits: d });
+  // Libellé de tarif composé par le serveur en français : mots traduits un par un.
+  const TARIFF_WORDS = ["€/kWh HT selon l'heure", "fournisseur", "réseau", "compensation", "TVA", "partagé", " à "];
+  const trLabel = (l) => TARIFF_WORDS.reduce((x, w) => x.split(w).join(w === " à " ? " " + tr("à") + " " : tr(w)), String(l || "")).replace(/(\d),(\d)/g, LOC.startsWith("en") ? "$1.$2" : "$1,$2");
   const eur = (v, d = 2) => fr(v, d) + " €";
-  const BANDS = [["creuse", "Creuse", "var(--t-cool)"], ["base", "Base", "var(--t-warm)"], ["pointe", "Pointe", "var(--t-hot)"]];
+  const BANDS = [["creuse", tr("Creuse"), "var(--t-cool)"], ["base", tr("Base"), "var(--t-warm)"], ["pointe", tr("Pointe"), "var(--t-hot)"]];
   const BASE = location.pathname.startsWith("/prive/") ? "/prive" : "";
-  const MONTH = (m) => new Date(m + "-15T12:00:00Z").toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  const day = (ts) => new Date(ts * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  const MONTH = (m) => new Date(m + "-15T12:00:00Z").toLocaleDateString(LOC, { month: "long", year: "numeric" });
+  const day = (ts) => new Date(ts * 1000).toLocaleDateString(LOC, { day: "2-digit", month: "2-digit" });
 
   // bulle partagée
   const tip = document.createElement("div"); tip.className = "tip num"; tip.hidden = true; document.body.appendChild(tip);
@@ -40,7 +45,7 @@
     bar(prefix + "-kwh", (x) => x.kwh, tk, "kWh"); bar(prefix + "-eur", (x) => x.eur, te, "€");
     $(prefix + "-cells").innerHTML = BANDS.map(([k, n, c]) => `<div class="a-cell"><span class="label" style="color:${c}">${n}</span>` +
       `<b>${eur(b[k].eur)}</b><span>${fr(b[k].kwh, 0)} kWh · ${b[k].kwh > 0 ? fr(b[k].eur / b[k].kwh, 3) : "-"} €/kWh</span></div>`).join("");
-    $(prefix + "-tot").textContent = `${fr(tk, 0)} kWh · ${eur(te)} · ${tk > 0 ? fr(te / tk, 3) : "-"} €/kWh en moyenne${unitLabel}`;
+    $(prefix + "-tot").textContent = `${fr(tk, 0)} kWh · ${eur(te)} · ${tk > 0 ? fr(te / tk, 3) : "-"} €/kWh ${tr("en moyenne")}${unitLabel}`;
     return { tk, te };
   }
 
@@ -57,31 +62,32 @@
     for (let h = 0; h < 24; h += 3) svg.appendChild(el("text", { x: pad.l + slot * h, y: H - 6, class: "a-axis" }, `${h} h`));
     svg._fn = (p) => { const h = Math.floor((p.x - pad.l) / slot); if (h < 0 || h > 23) return null;
       const b = BANDS.find(([k]) => k === sch[h]);
-      return `<div class="tip-h">${K === "wd" ? "semaine" : "week-end"} · ${h} h - ${h + 1} h · ${b[1].toLowerCase()}</div>` +
-        row("var(--mist)", "maison", fr(P.house[h], 2) + " kWh") + (P.pacDays ? row("var(--t-hot)", "PAC", fr(P.pac[h], 2) + " kWh") : ""); };
-    $("a-profile-why").textContent = `Moyenne sur ${P.houseDays} jours au compteur` + (P.pacDays ? ` et ${P.pacDays} jours de PAC` : "") +
-      `. Fond : tranche tarifaire de l'heure.`;
+      return `<div class="tip-h">${K === "wd" ? tr("semaine") : tr("week-end")} · ${h} h - ${h + 1} h · ${b[1].toLowerCase()}</div>` +
+        row("var(--mist)", tr("maison"), fr(P.house[h], 2) + " kWh") + (P.pacDays ? row("var(--t-hot)", "PAC", fr(P.pac[h], 2) + " kWh") : ""); };
+    $("a-profile-why").textContent = tr("Moyenne sur {n} jours au compteur", { n: P.houseDays }) + (P.pacDays ? " " + tr("et {n} jours de PAC", { n: P.pacDays }) : "") +
+      ". " + tr("Fond : tranche tarifaire de l'heure.");
   }
 
   function render() {
     const T = A.tariff;
-    $("a-tariff").textContent = T.label;
-    $("a-range").textContent = A.meterFrom ? `compteur ${day(A.meterFrom)} → ${day(A.meterTo)}` + (A.pacFrom ? ` · PAC depuis ${day(A.pacFrom)}` : "") : "pas de données compteur";
+    $("a-tariff").textContent = trLabel(T.label);
+    $("a-range").textContent = A.meterFrom ? `${tr("compteur")} ${day(A.meterFrom)} → ${day(A.meterTo)}` + (A.pacFrom ? ` · ${tr("PAC depuis")} ${day(A.pacFrom)}` : "") : tr("pas de données compteur");
     $("a-prices").innerHTML = BANDS.filter(([k]) => T.prices[k]).map(([k, n, c]) => `<span class="pill" style="border-color:${c}"><b style="color:${c}">${n}</b> ${T.prices[k].map((p) => fr(p, 4)).join(" / ")} €/kWh</span>`).join("") +
-      (T.shared ? `<span class="pill"><b>Partagé</b> ${fr(T.shared, 4)} €/kWh</span>` : "") + `<span class="label">prix tout compris du kWh (énergie, taxes, réseau, TVA)</span>`;
+      (T.shared ? `<span class="pill"><b>${tr("Partagé")}</b> ${fr(T.shared, 4)} €/kWh</span>` : "") + `<span class="label">${tr("prix tout compris du kWh (énergie, taxes, réseau, TVA)")}</span>`;
 
     const hs = bandBlock("a-house", A.bands.house, "");
-    const ps = bandBlock("a-pac", A.bands.pac, A.pacFrom ? ` (depuis le ${day(A.pacFrom)})` : "");
+    const ps = bandBlock("a-pac", A.bands.pac, A.pacFrom ? " " + tr("(depuis le {d})", { d: day(A.pacFrom) }) : "");
 
     // partage
     const sh = A.bands.shared, sk = BANDS.reduce((s, [k]) => s + sh[k].kwh, 0), sg = BANDS.reduce((s, [k]) => s + sh[k].eur, 0);
     $("a-share-cells").innerHTML = BANDS.map(([k, n, c]) => `<div class="a-cell"><span class="label" style="color:${c}">${n}</span><b>${fr(sh[k].kwh, 0)} kWh</b>` +
-      `<span>${sh[k].eur >= 0 ? "économie" : "surcoût"} ${eur(Math.abs(sh[k].eur))}</span></div>`).join("") +
-      `<div class="a-cell"><span class="label">Total</span><b class="${sg >= 0 ? "pos" : "neg"}">${sg >= 0 ? "+" : "−"}${eur(Math.abs(sg))}</b><span>${fr(sk, 0)} kWh partagés</span></div>`;
+      `<span>${sh[k].eur >= 0 ? tr("économie") : tr("surcoût")} ${eur(Math.abs(sh[k].eur))}</span></div>`).join("") +
+      `<div class="a-cell"><span class="label">${tr("Total")}</span><b class="${sg >= 0 ? "pos" : "neg"}">${sg >= 0 ? "+" : "−"}${eur(Math.abs(sg))}</b><span>${tr("{v} kWh partagés", { v: fr(sk, 0) })}</span></div>`;
     $("a-share-why").textContent = T.shared
-      ? `Un kWh partagé coûte ${fr(T.shared, 4)} € (communauté + réseau). Le même kWh chez le fournisseur coûte ${BANDS.filter(([k]) => T.prices[k]).map(([k, n]) => `${n.toLowerCase()} ${T.prices[k].map((p) => fr(p, 3)).join("/")} €`).join(", ")}. ` +
-        `Le partage n'est gagnant que quand il remplace des kWh plus chers que lui. Le partage arrive surtout en milieu de journée, quand la production est là.`
-      : "Pas de prix de partage configuré.";
+      ? tr("Un kWh partagé coûte {p} € (communauté + réseau).", { p: fr(T.shared, 4) }) + " " +
+        tr("Le même kWh chez le fournisseur coûte {list}.", { list: BANDS.filter(([k]) => T.prices[k]).map(([k, n]) => `${n.toLowerCase()} ${T.prices[k].map((p) => fr(p, 3)).join("/")} €`).join(", ") }) + " " +
+        tr("Le partage n'est gagnant que quand il remplace des kWh plus chers que lui. Le partage arrive surtout en milieu de journée, quand la production est là.")
+      : tr("Pas de prix de partage configuré.");
 
     // pics
     const svg = $("a-peaks"), W = 1000, H = 220, pad = { l: 46, r: 10, t: 12, b: 26 }; svg.replaceChildren();
@@ -94,40 +100,40 @@
     if (T.pref) svg.appendChild(el("line", { x1: pad.l + slot * T.pref, x2: pad.l + slot * T.pref, y1: pad.t, y2: H - pad.b, stroke: "var(--frost)", "stroke-dasharray": "4 4" }));
     const totQ = pk.reduce((s, p) => s + p.q, 0), overQ = pk.filter((p) => T.pref && p.kw >= T.pref).reduce((s, p) => s + p.q, 0);
     svg._fn = (p) => { const k = Math.floor((p.x - pad.l) / slot), b = pk.find((x) => x.kw === k); if (!b) return null;
-      return `<div class="tip-h">${k} à ${k + 1} kW</div>` + row(T.pref && k >= T.pref ? "var(--t-hot)" : "var(--t-cold)", "quarts d'heure", `${b.q} · ${fr((100 * b.q) / totQ, 1)} %`) + row("var(--mist)", "durée", fr(b.q / 4, 1) + " h"); };
-    $("a-peaks-why").textContent = T.pref ? `${overQ} quarts d'heure sur ${totQ} (${fr((100 * overQ) / Math.max(1, totQ), 1)} %) au-dessus de la puissance de référence de ${fr(T.pref, 0)} kW. Échelle verticale logarithmique.` : "Puissance de référence non configurée.";
+      return `<div class="tip-h">${tr("{a} à {b} kW", { a: k, b: k + 1 })}</div>` + row(T.pref && k >= T.pref ? "var(--t-hot)" : "var(--t-cold)", tr("quarts d'heure"), `${b.q} · ${fr((100 * b.q) / totQ, 1)} %`) + row("var(--mist)", tr("durée"), fr(b.q / 4, 1) + " h"); };
+    $("a-peaks-why").textContent = T.pref ? tr("{o} quarts d'heure sur {n} ({p} %) au-dessus de la puissance de référence de {k} kW. Échelle verticale logarithmique.", { o: overQ, n: totQ, p: fr((100 * overQ) / Math.max(1, totQ), 1), k: fr(T.pref, 0) }) : tr("Puissance de référence non configurée.");
 
     // mois
-    $("a-months").innerHTML = `<thead><tr><th>Mois</th><th>Jours</th><th>Maison kWh</th><th>Maison €</th><th>€/kWh</th><th>Partagé kWh</th><th>Partage €</th><th>PAC kWh</th><th>PAC €</th><th>Pic kW</th><th>&gt; Pref kWh</th></tr></thead><tbody>` +
+    $("a-months").innerHTML = `<thead><tr>${["Mois", "Jours", "Maison kWh", "Maison €", "€/kWh", "Partagé kWh", "Partage €", "PAC kWh", "PAC €", "Pic kW"].map((h) => `<th>${tr(h)}</th>`).join("")}<th>&gt; Pref kWh</th></tr></thead><tbody>` +
       A.months.map((m) => `<tr><td>${MONTH(m.m)}</td><td>${fr(m.days, 1)}</td><td>${fr(m.houseKwh, 0)}</td><td>${fr(m.houseEur, 2)}</td><td>${m.houseKwh ? fr(m.houseEur / m.houseKwh, 3) : "-"}</td>` +
         `<td>${m.shared ? fr(m.shared, 0) : "-"}</td><td class="${m.gain >= 0 ? "pos" : "neg"}">${m.shared ? (m.gain >= 0 ? "+" : "−") + fr(Math.abs(m.gain), 2) : "-"}</td>` +
         `<td>${m.pacKwh ? fr(m.pacKwh, 0) : "-"}</td><td>${m.pacKwh ? fr(m.pacEur, 2) : "-"}</td><td>${fr(m.peak, 1)}</td><td>${fr(m.over, 1)}</td></tr>`).join("") + "</tbody>";
 
     // théorie : décalage pointe -> creuse
     const pC = T.prices.creuse?.[0], pP = T.prices.pointe?.slice(-1)[0];
-    const sim = () => { const v = Number($("a-sim").value); $("a-sim-v").textContent = `${fr(v, 1)} kWh par jour`;
+    const sim = () => { const v = Number($("a-sim").value); $("a-sim-v").textContent = tr("{v} kWh par jour", { v: fr(v, 1) });
       $("a-sim-why").textContent = pC != null && pP != null
-        ? `Déplacer ${fr(v, 1)} kWh par jour de la pointe (${fr(pP, 4)} €) vers la creuse (${fr(pC, 4)} €) économiserait ${eur(v * (pP - pC) * 30.4)} par mois, ${eur(v * (pP - pC) * 365, 0)} par an. ` +
-          `Ordre de grandeur : un lave-linge à 60 °C consomme 1 à 1,5 kWh, un lave-vaisselle 1 à 1,5 kWh, une charge de ballon d'eau chaude par PAC 2 à 4 kWh.`
-        : "Le tarif configuré n'a pas de tranches creuse et pointe."; };
+        ? tr("Déplacer {v} kWh par jour de la pointe ({p} €) vers la creuse ({c} €) économiserait {m} par mois, {y} par an.", { v: fr(v, 1), p: fr(pP, 4), c: fr(pC, 4), m: eur(v * (pP - pC) * 30.4), y: eur(v * (pP - pC) * 365, 0) }) + " " +
+          tr("Ordre de grandeur : un lave-linge à 60 °C consomme 1 à 1,5 kWh, un lave-vaisselle 1 à 1,5 kWh, une charge de ballon d'eau chaude par PAC 2 à 4 kWh.")
+        : tr("Le tarif configuré n'a pas de tranches creuse et pointe."); };
     $("a-sim").oninput = sim; sim();
 
     // théorie : ECS la nuit
     const pp = A.bands.pac, pDays = Math.max(A.profile.wd.pacDays + A.profile.we.pacDays, 1);
     $("a-ecs-why").textContent = pC != null && pp.pointe.kwh > 0
-      ? `Sur ${pDays} jours, la PAC a consommé ${fr(pp.pointe.kwh, 1)} kWh en pointe (${eur(pp.pointe.eur)}), soit ${fr(pp.pointe.kwh / pDays, 1)} kWh par jour. ` +
-        `Si la moitié est de l'eau chaude programmable la nuit (hypothèse), le gain serait d'environ ${eur((pp.pointe.kwh / pDays / 2) * (pP - pC) * 30.4)} par mois. ` +
-        `Réglage côté NIBE : programme « eau chaude » de la VVM 500 (Menu 2) sur 0 h - 6 h, et 12 h - 17 h le week-end. Le chauffage suit la météo et se décale peu.`
-      : "Pas encore assez de données PAC en pointe.";
+      ? tr("Sur {n} jours, la PAC a consommé {k} kWh en pointe ({e}), soit {d} kWh par jour.", { n: pDays, k: fr(pp.pointe.kwh, 1), e: eur(pp.pointe.eur), d: fr(pp.pointe.kwh / pDays, 1) }) + " " +
+        tr("Si la moitié est de l'eau chaude programmable la nuit (hypothèse), le gain serait d'environ {g} par mois.", { g: eur((pp.pointe.kwh / pDays / 2) * (pP - pC) * 30.4) }) + " " +
+        tr("Réglage côté NIBE : programme « eau chaude » de la VVM 500 (Menu 2) sur 0 h - 6 h, et 12 h - 17 h le week-end. Le chauffage suit la météo et se décale peu.")
+      : tr("Pas encore assez de données PAC en pointe.");
 
     // théorie : puissance de référence (frais fixes Creos 2026 HT, source switchr.lu / ILR)
     const FIX = { 3: 7.42, 7: 12.84, 12: 19.61, 17: 26.39 }, vat = 1.08;
     const months = A.months.filter((m) => m.days >= 20), avgOver = months.length ? months.reduce((s, m) => s + m.over, 0) / months.length : 0;
     $("a-pref-why").textContent = T.pref
-      ? `Passer de ${T.pref} à 12 kW coûterait ${eur((FIX[12] - (FIX[T.pref] ?? FIX[7])) * vat)} de plus par mois en part fixe. ` +
-        `Au-delà de ${T.pref} kW, tu tires en moyenne ${fr(avgOver, 1)} kWh par mois complet` +
-        (T.overrun ? `, facturés ${eur(avgOver * T.overrun)}.` : `. Ta facture actuelle ne contient aucune ligne de dépassement : à ce jour, rester à ${T.pref} kW est le bon choix. Si Creos le facturait à 0,0765 € HT, cela ferait ${eur(avgOver * 0.0765 * vat)} par mois.`)
-      : "Puissance de référence non configurée.";
+      ? tr("Passer de {a} à 12 kW coûterait {e} de plus par mois en part fixe.", { a: T.pref, e: eur((FIX[12] - (FIX[T.pref] ?? FIX[7])) * vat) }) + " " +
+        tr("Au-delà de {a} kW, tu tires en moyenne {k} kWh par mois complet", { a: T.pref, k: fr(avgOver, 1) }) +
+        (T.overrun ? ", " + tr("facturés {e}.", { e: eur(avgOver * T.overrun) }) : ". " + tr("Ta facture actuelle ne contient aucune ligne de dépassement : à ce jour, rester à {a} kW est le bon choix. Si Creos le facturait à 0,0765 € HT, cela ferait {e} par mois.", { a: T.pref, e: eur(avgOver * 0.0765 * vat) }))
+      : tr("Puissance de référence non configurée.");
 
     [$("a-profile"), $("a-peaks")].forEach((s) => { if (!s._hv) { s._hv = 1; hover(s, (p) => s._fn?.(p)); } });
     drawProfile();
@@ -140,21 +146,21 @@
   // Période : une rangée de boutons (7 j, 30 j, un par mois, tout), recalcul serveur au clic.
   const addD = (k, n) => new Date(Date.parse(k + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
   const nDays = (a, b) => Math.round((Date.parse(b + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / 864e5);
-  const dShort = (k) => new Date(k + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
+  const dShort = (k) => new Date(k + "T12:00:00Z").toLocaleDateString(LOC, { day: "numeric", month: "short", timeZone: "UTC" });
   let SPAN = null, seq = 0;
   function presets(sp) {
-    const t = sp.to, out = [["7 j", addD(t, -6), t], ["30 j", addD(t, -29), t]];
+    const t = sp.to, out = [[tr("7 j"), addD(t, -6), t], [tr("30 j"), addD(t, -29), t]];
     for (let m = sp.from.slice(0, 7); m <= t.slice(0, 7); m = addD(m + "-28", 7).slice(0, 7)) {
       const end = addD(addD(m + "-28", 7).slice(0, 7) + "-01", -1);
-      out.push([new Date(m + "-15T12:00:00Z").toLocaleDateString("fr-FR", { month: "short", timeZone: "UTC" }).replace(".", ""), m + "-01", end]);
+      out.push([new Date(m + "-15T12:00:00Z").toLocaleDateString(LOC, { month: "short", timeZone: "UTC" }).replace(".", ""), m + "-01", end]);
     }
-    out.push(["Tout", sp.from, t]);
+    out.push([tr("Tout"), sp.from, t]);
     return out.map(([n, a, b]) => [n, a < sp.from ? sp.from : a, b > t ? t : b]);
   }
   function pick(btn) {
     $("a-presets").querySelectorAll("button").forEach((o) => o.setAttribute("aria-pressed", String(o === btn)));
     const { a, b } = btn.dataset, n = nDays(a, b) + 1;
-    $("a-period-v").textContent = `${dShort(a)} → ${dShort(b)} · ${n} j`;
+    $("a-period-v").textContent = `${dShort(a)} → ${dShort(b)} · ${n} ${tr("j")}`;
     load(a, b);
   }
   $("a-presets").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) pick(b); });
@@ -170,11 +176,11 @@
       if (sp && !SPAN) { SPAN = sp;
         $("a-presets").innerHTML = presets(sp).map(([n, a, b]) => `<button data-a="${a}" data-b="${b}" aria-pressed="false">${n}</button>`).join("");
         const all = $("a-presets").lastElementChild; all.setAttribute("aria-pressed", "true");
-        $("a-period-v").textContent = `${dShort(all.dataset.a)} → ${dShort(all.dataset.b)} · ${nDays(all.dataset.a, all.dataset.b) + 1} j`;
+        $("a-period-v").textContent = `${dShort(all.dataset.a)} → ${dShort(all.dataset.b)} · ${nDays(all.dataset.a, all.dataset.b) + 1} ${tr("j")}`;
         $("a-period").hidden = false; }
       render();
     }).catch((e) => { if (my !== seq) return; document.body.classList.remove("a-busy");
-      $("a-wait").hidden = false; $("a-wait").textContent = e === 404 ? "Analyse réservée à l'espace privé." : "Analyse indisponible pour le moment."; });
+      $("a-wait").hidden = false; $("a-wait").textContent = e === 404 ? tr("Analyse réservée à l'espace privé.") : tr("Analyse indisponible pour le moment."); });
   }
   load();
 })();
