@@ -183,3 +183,10 @@ body.a-busy .a-sec:not(#a-period) { opacity: .55; transition: opacity .2s; }
 .lang a{color:var(--mist);text-decoration:none;padding:4px 5px;opacity:.6}
 .lang a:hover,.lang a:focus-visible{opacity:1;color:var(--frost)}
 .lang a[aria-current="true"]{opacity:1;color:var(--frost)}
+/* Alertes (espace privé) */
+.alerts{display:flex;flex-direction:column;gap:8px}
+.alert{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;padding:10px 14px;border:1px solid var(--rule);border-left:3px solid var(--warn);background:var(--slab)}
+.alert.crit{border-left-color:var(--crit)}
+.alert b{font-weight:600;color:var(--frost)}
+.alert span{color:var(--mist);font-size:13px}
+.alert .label{margin-left:auto}

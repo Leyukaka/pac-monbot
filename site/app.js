@@ -60,7 +60,8 @@
     $("stamp").classList.toggle("stale", age != null && age > 1200);
     const alarm = (NOW?.alarms || []).length;
     $("online").textContent = alarm ? t(alarm > 1 ? "{n} alarmes" : "{n} alarme", { n: alarm }) : has ? t("VVM 500 en ligne") : "VVM 500";
-    $("dot").style.background = alarm ? "var(--crit)" : age != null && age > 1200 ? "var(--warn)" : "var(--ok)";
+    const crit = (NOW?.alerts || []).some((x) => x.level === "crit");
+    $("dot").style.background = alarm || crit ? "var(--crit)" : age != null && age > 1200 ? "var(--warn)" : "var(--ok)";
     $("ext").textContent = t("Ext.") + " " + fr(val(ID.out)) + " °C";
 
     const hz = val(ID.hz), sup = val(ID.supply), ret = val(ID.ret), calc = val(ID.calc), dm = val(dmId());
@@ -96,8 +97,20 @@
     $("h-ret").textContent = "BT3 " + fr(ret) + "°";
     animatePlant(hz, defrost > 0);
 
+    renderAlerts();
     renderDiag();
     renderEnergy();
+  }
+
+  // Alertes (espace privé) : alarmes NIBE, codes d'alarme des modules, clés API myUplink et Leneda. Calculées par le serveur.
+  function renderAlerts() {
+    const a = NOW?.alerts, sec = $("alerts-sec");
+    if (!NOW?.house || !a || !a.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const when = (s) => new Date(s * 1000).toLocaleString(LOC, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    $("alerts-n").textContent = t(a.length > 1 ? "{n} alertes" : "{n} alerte", { n: a.length });
+    $("alerts").innerHTML = a.map((x) => `<div class="alert ${x.level === "crit" ? "crit" : "warn"}"><b>${esc(t(x.title))}</b>` +
+      (x.detail ? `<span>${esc(x.detail)}</span>` : "") + (x.since ? `<span class="label">${esc(when(x.since))}</span>` : "") + `</div>`).join("");
   }
 
   // Vitesse proportionnelle : fréquence compresseur pour le fluide, le rotor et le ventilateur,

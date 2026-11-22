@@ -1,6 +1,6 @@
-# pac: live dashboard for NIBE heat pumps (myUplink)
+# pac: NIBE heat pump and home electricity dashboard (myUplink)
 
-A self-hosted, real-time dashboard for **NIBE heat pumps** connected to **myUplink**.
+A self-hosted, real-time dashboard for a **NIBE heat pump** connected to **myUplink**, and for the **electricity consumption of the home** around it: what the heat pump uses, what the whole house draws from the meter, what it costs per tariff band, and when something needs attention.
 
 ![Dashboard](docs/dashboard.png)
 
@@ -12,7 +12,8 @@ It shows:
 - charts with a draggable time brush (6 h, 24 h, 7 d, 30 d, all), plus a 30-day outdoor temperature band.
 - hover any chart to read the exact values under the cursor;
 - in the private area only: an **Analysis** tab (`/prive/analyse`): cost and kWh per tariff band for the house and the heat pump, average hourly profile (weekday / weekend), energy sharing gain or loss per band, 15-minute peak histogram against the reference power, monthly table, and what-if simulations (shifting load out of peak hours, reference power);
-- in the private area only: an electricity cost board (today, yesterday, 7 days, month to date with an end-of-month projection, 30-day bars split peak / off-peak, whole-house estimate).
+- in the private area only: an electricity cost board (today, yesterday, 7 days, month to date with an end-of-month projection, 30-day bars split peak / off-peak, whole-house consumption from the meter or estimated from the phase currents);
+- in the private area only: an **alerts** panel at the top of the page, with a red status dot in the header. It lists active NIBE alarms (myUplink notifications), alarm codes reported by the modules (outdoor unit EB101, EB100, VVM 500), and API key or data-feed problems: myUplink key rejected, collection stopped, quota exceeded, Leneda key rejected, Leneda push from the home PC stopped, push token rejected.
 
 | Schematic while running (`?demo=64`) | Phone, defrost (`?demo=defrost`) |
 |---|---|
@@ -26,7 +27,7 @@ You can run it in two ways, both using the same `src/worker.js`:
 
 > **Compatibility.** The point IDs (`TRACKED` in `src/worker.js`, `ID` at the top of `site/app.js`) were checked on a **NIBE VVM 500 indoor module with an EB101 outdoor unit** (F2120). Other NIBE models (S-series, F-series, SMO) expose most of the same points, but some numbers may differ. The `points` table stores every point your system reports, so compare against it and adjust the two lists if a value stays empty.
 >
-> The user interface is in French for now. Labels are in `site/index.html` and `site/app.js`.
+> The user interface is in French, English and German (see Notes).
 
 ## 1. myUplink access (both options)
 
@@ -81,7 +82,7 @@ The cost board uses the NIBE energy log (heat pump consumption per hour, backup 
 | `SHARED_ENERGY_KWH`, `SHARED_VAT` | Line-by-line mode: price per kWh billed by the energy community, and its VAT rate; the network charge is added on top |
 | `TIMEZONE` | Time zone for days and off-peak hours (default `Europe/Paris`) |
 
-Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed fees; set `MONTHLY_FEE` to include them in the month projection. Example for Luxembourg (Enovos + Creos, 2026): (energy 0.1321 + Creos network 0.0510 + electricity tax 0.0010 - compensation 0.0010) × 1.08 VAT ≈ 0.1978 €/kWh, `TIMEZONE=Europe/Luxembourg`, no off-peak hours. Creos capacity overrun charges are computed when Leneda data is available (see below).
+Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed fees; set `MONTHLY_FEE` to include them in the month projection. For a time-of-use contract, prefer the line-by-line mode (`ENERGY_BANDS` and the variables below it): it follows the invoice line by line and was checked against a real Luxembourg invoice (Enovos "naturstroum drive" + Creos network, September 2026) to the cent. `TIMEZONE=Europe/Luxembourg` in that case. `PREF_KW` (reference power) and `OVERRUN_KWH` (price per kWh above it) are optional; leave `OVERRUN_KWH` unset if your invoice has no overrun line, and the 15-minute peak is still shown.
 
 ### Luxembourg: real consumption from Leneda
 
@@ -135,7 +136,7 @@ There is **no built-in login**, and the server listens on `127.0.0.1` only. To r
 
 | Route | Returns |
 |---|---|
-| `/api/now` | Latest values, 7-day counters, active alarms (severity and title), collector status |
+| `/api/now` | Latest values, 7-day counters, active alarms (severity and title), collector status; under `/prive/`, also the alerts list |
 | `/api/series?range=24h\|7d\|30d\|30dd\|365d\|all&pids=…`, or `from=&to=` (UTC seconds) | Aggregated series, about 400 points per series at most, 12 series at most |
 | `/prive/api/cost` | Private: kWh per local day (peak / off-peak, house estimate) and the tariff, last 62 days |
 | `/prive/api/analysis` | Private: per-band totals, hourly profiles, peaks histogram, monthly table, last 62 days |
@@ -155,6 +156,12 @@ There is **no built-in login**, and the server listens on `127.0.0.1` only. To r
 - Energy figures come from the NIBE energy log: point 32486 for instantaneous power, 3249x for last-hour totals. Without them, the fallback estimate is 40 W per Hz.
 - On the free myUplink plan, the history route returns 403, so past data cannot be imported without Premium.
 - The site is in French, English and German. The language follows the browser (`navigator.languages`, English if none matches), and the FR · EN · DE links in the top bar override it (remembered in `localStorage`, or `?lang=xx`). French text is the key: `site/i18n-dict.js` maps it to English and German, and `python tools/i18n-check.py` lists any text still missing a translation.
-- This project is not affiliated with NIBE or myUplink.
+- This project is not affiliated with NIBE, myUplink, Leneda or any energy supplier.
+
+## Fork it
+
+This repository is a snapshot of one installation: a VVM 500 with an F2120 outdoor unit, a Luxembourg meter and tariff. It is not a hosted service, and there is no shared instance to join.
+
+If you want to host it for your own heat pump, adapt it to another NIBE model or tariff, or add information, **fork the repository** and run your own copy (option A or B above). Your keys, your data and your Access policy stay yours. Issues that report a wrong point ID or a misread value for another model are welcome, so the compatibility notes can improve.
 
 MIT licence.

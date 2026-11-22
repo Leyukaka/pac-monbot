@@ -15,6 +15,7 @@ export const TRACKED = [
   "43081", "43084",                  // facteur temps appoint, puissance appoint
   "43437", "44396",                  // pompes GP1, GP12
   "49994", "44282",                  // priorité (20 = eau chaude), compresseurs actifs en ECS
+  "44075", "44137", "45001",         // codes d'alarme : unité extérieure EB101, module EB100, VVM 500 (0 = aucune)
   "40079", "40081", "40083",         // intensités BE3, BE2, BE1 (phases maison, privé)
   "44701", "40782", "44064", "44703",// EB101 fréquence, demandée, état, dégivrage
   "44069", "44071", "44073",         // EB101 démarrages, heures, heures ECS
@@ -247,10 +248,19 @@ async function ingestGrid(req, env) {
   const want = new TextEncoder().encode("Bearer " + env.INGEST_TOKEN);
   let diff = got.length ^ want.length;
   for (let i = 0; i < want.length; i++) diff |= want[i] ^ (got[i] ?? 0);
-  if (diff) return json({ error: "refusé" }, 401);
+  if (diff) {
+    const d = JSON.parse(await kvGet(env, "ingest_denied", "null"));
+    await kvPut(env, "ingest_denied", JSON.stringify({ ts: nowS(), n: d && d.ts > nowS() - 86400 ? d.n + 1 : 1 })).run();
+    return json({ error: "refusé" }, 401);
+  }
   if (Number(req.headers.get("content-length") || 0) > 1_000_000) return json({ error: "trop gros" }, 413);
   const j = await req.json().catch(() => null);
   if (!j || !Array.isArray(j.items) || j.items.length > 10_000) return json({ error: "format" }, 400);
+  // Échec côté PC (Leneda a refusé la clé, format inattendu…) : seul l'état est enregistré, pour l'alerte privée.
+  if (j.error != null) {
+    await kvPut(env, "leneda_status", JSON.stringify({ ts: nowS(), status: String(j.error).slice(0, 40), via: "push" })).run();
+    return json({ ok: true, n: 0 });
+  }
   if (String(j.unit ?? "").toLowerCase() !== "kw" || j.interval !== "PT15M") return json({ error: "unité ou pas de temps inattendus" }, 400);
   const now = nowS();
   const rows = j.items.filter((r) => Array.isArray(r) && Number.isInteger(r[0]) && r[0] % 900 === 0 && r[0] > now - 400 * 86400 && r[0] < now + 3600
@@ -267,7 +277,49 @@ async function ingestGrid(req, env) {
 }
 
 function pickAlarm(a) {
-  return { alarmNumber: a.alarmNumber ?? null, severity: a.severity ?? null, header: a.header ?? null, createdDatetime: a.createdDatetime ?? null };
+  return { alarmNumber: a.alarmNumber ?? null, severity: a.severity ?? null, header: a.header ?? null, createdDatetime: a.createdDatetime ?? null,
+    description: a.description ?? null, equipName: a.equipName ?? null, status: a.status ?? null };
+}
+
+// ---------- alertes (espace privé) ----------
+// Une liste unique pour la page privée : alarmes NIBE (notifications myUplink), codes d'alarme des modules,
+// santé de la collecte myUplink (clé API, quota) et du compteur Leneda (clé API, envoi depuis le PC, jeton d'envoi).
+// Titres fixes en français (traduits côté page), le détail variable à part. Rien n'est envoyé hors de /prive/.
+const MODULE_ALARMS = { "44075": "Unité extérieure EB101", "44137": "Module EB100", "45001": "VVM 500" };
+async function alerts(env) {
+  const now = nowS(), out = [];
+  const add = (level, src, title, detail = null, since = null) => out.push({ level, src, title, detail: detail == null ? null : String(detail).slice(0, 300), since });
+  for (const a of JSON.parse(await kvGet(env, "alarms", "[]"))) {
+    add(a.severity != null && a.severity <= 1 ? "warn" : "crit", "nibe", "Alarme pompe à chaleur",
+      [a.alarmNumber != null ? `n° ${a.alarmNumber}` : null, a.header, a.equipName, a.description].filter(Boolean).join(" · ") || null,
+      a.createdDatetime ? Math.floor(Date.parse(a.createdDatetime) / 1000) || null : null);
+  }
+  const ids = Object.keys(MODULE_ALARMS);
+  const mods = (await env.DB.prepare(`SELECT pid, last_val, last_ts FROM points WHERE pid IN (${ids.map(() => "?").join(",")})`).bind(...ids).all()).results;
+  for (const r of mods) if (r.last_val) add("crit", "module", "Alarme sur un module", `${MODULE_ALARMS[r.pid]} · code ${r.last_val}`, r.last_ts);
+  if ((await kvGet(env, "alarm_ts", 0)) < now - 3600) add("warn", "nibe", "Alarmes NIBE non relues depuis plus d'une heure");
+
+  const lastOk = (await env.DB.prepare("SELECT ts FROM polls WHERE ok = 1 ORDER BY ts DESC LIMIT 1").first())?.ts ?? null;
+  const last = await env.DB.prepare("SELECT ts, ok, detail FROM polls ORDER BY ts DESC LIMIT 1").first();
+  if (last && !last.ok && /token (400|401|403)/.test(last.detail || "")) add("crit", "myuplink", "Clé API myUplink refusée", last.detail, last.ts);
+  else if (!lastOk || lastOk < now - 1200) add("crit", "myuplink", "Collecte myUplink arrêtée", last && !last.ok ? last.detail : null, lastOk);
+  const back = await kvGet(env, "backoff_until", 0);
+  if (back > now) add("warn", "myuplink", "Quota myUplink dépassé, collecte en pause", null, back);
+
+  if (env.LENEDA_POD) {
+    const ln = JSON.parse(await kvGet(env, "leneda_status", "null"));
+    const push = !!env.INGEST_TOKEN;
+    if (!ln) add("warn", "leneda", "Aucune donnée Leneda reçue");
+    else {
+      const st = String(ln.status);
+      if (st === "401" || st === "403") add("crit", "leneda", "Clé API Leneda refusée", `HTTP ${st}` + (ln.probe ? ` · test ${ln.probe}` : ""), ln.ts);
+      else if (st !== "200" && st !== "vide") add("warn", "leneda", "Erreur Leneda", st, ln.ts);
+      if (ln.ts < now - (push ? 3 : 2) * 3600) add("warn", "leneda", push ? "Envoi Leneda depuis le PC arrêté" : "Collecte Leneda arrêtée", null, ln.ts);
+    }
+    const den = JSON.parse(await kvGet(env, "ingest_denied", "null"));
+    if (den && den.ts > now - 86400) add("warn", "leneda", "Envoi refusé : jeton INGEST_TOKEN invalide", `${den.n} essai(s)`, den.ts);
+  }
+  return out;
 }
 
 async function getToken(env) {
@@ -341,6 +393,7 @@ async function now(env, _q, house) {
     counters7d: Object.fromEntries(old.map((r) => [r.pid, { value: r.value, ts: r.ts }])),
     alarms,
     stable,
+    ...(house ? { alerts: await alerts(env) } : {}),
     house: !!house,
     poll: { last: last ? { ts: last.ts, ok: last.ok } : null, lastOk: lastOk?.ts ?? null },
     server: nowS(),

@@ -22,15 +22,24 @@ let from = Math.max(now - 62 * DAY, state.last ? state.last - 3 * DAY : 0);
 if (longRun) from = Math.max(now - 62 * DAY, Math.min(from, state.lastShared ? state.lastShared - 3 * DAY : 0));
 const iso = (t) => new Date(t * 1000).toISOString().slice(0, 19) + "Z";
 
+// Échec : l'état est signalé au Worker (alerte dans l'espace privé), puis arrêt.
+async function fail(code, status, ...msg) {
+  console.error(new Date().toISOString(), ...msg);
+  await fetch(E.PUSH_URL, { method: "POST", headers: { Authorization: `Bearer ${E.INGEST_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ unit: "kW", interval: "PT15M", items: [], error: String(status) }), signal: AbortSignal.timeout(15000) }).catch(() => {});
+  process.exit(code);
+}
+
 async function series(obis, a, b) {
   const url = `${BASE}/metering-points/${encodeURIComponent(E.LENEDA_POD)}/time-series?obisCode=${encodeURIComponent(obis)}` +
     `&startDateTime=${encodeURIComponent(iso(a))}&endDateTime=${encodeURIComponent(iso(b))}`;
   const r = await fetch(url, { headers: { "X-API-KEY": E.LENEDA_API_KEY, "X-ENERGY-ID": E.LENEDA_ENERGY_ID, Accept: "application/json" },
-    signal: AbortSignal.timeout(30000) });
-  if (!r.ok) { console.error(new Date().toISOString(), "leneda", obis, r.status, iso(a)); process.exit(2); }
+    signal: AbortSignal.timeout(30000) }).catch(() => null);
+  if (!r) return fail(2, "réseau", "leneda", obis, "network error");
+  if (!r.ok) return fail(2, r.status, "leneda", obis, r.status, iso(a));
   const j = await r.json();
   if ((j.items || []).length && (String(j.unit ?? "kW").toLowerCase() !== "kw" || String(j.intervalLength ?? "PT15M") !== "PT15M")) {
-    console.error("unexpected format", obis, j.unit, j.intervalLength); process.exit(3);
+    return fail(3, "format", "unexpected format", obis, j.unit, j.intervalLength);
   }
   return new Map((j.items || []).filter((it) => typeof it.value === "number" && it.startedAt)
     .map((it) => [Math.floor(Date.parse(it.startedAt) / 1000), it.value]).filter(([t]) => Number.isFinite(t) && t % 900 === 0));
