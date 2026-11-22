@@ -1,0 +1,55 @@
+/* PAC/POWER · page Coûts (espace privé). Uniquement les variables de style.css, pour suivre les thèmes. */
+.c-sub{margin-top:14px}
+.c-warn{margin:0;padding:10px 14px;border:1px solid var(--rule);border-left:3px solid var(--warn);background:var(--slab);font-size:13px;color:var(--mist);line-height:1.5;max-width:110ch}
+
+/* offres côte à côte */
+.c-offers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.c-card{gap:12px}
+.c-card.c-cur{border-color:color-mix(in oklab,var(--t-warm) 45%,var(--rule))}
+.c-card .why{margin:0}
+.c-best{margin:0;font-size:15px;color:var(--frost);line-height:1.5}
+.c-best b{font-weight:600}
+
+/* saisies */
+.c-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 12px}
+.c-form-wide{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end}
+.c-field{display:flex;flex-direction:column;justify-content:flex-end;gap:5px;min-width:0}
+.c-field .label{letter-spacing:.08em}
+.c-field input,.c-field select{font-family:var(--f-data);font-size:14px;color:var(--frost);background:var(--ink);border:1px solid var(--rule);border-radius:0;padding:7px 8px;width:100%;min-width:0}
+.c-field select{cursor:pointer}
+.c-field input:focus-visible,.c-field select:focus-visible{outline:2px solid var(--t-cold);outline-offset:1px;border-color:var(--t-cold)}
+.c-field input[aria-invalid="true"]{border-color:var(--crit)}
+.c-field input:disabled,.c-field select:disabled{opacity:.45;cursor:not-allowed}
+.c-field .tabs{flex-wrap:wrap}
+.c-err{margin:0;font-size:12px;color:var(--crit)}
+.c-check{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;width:fit-content}
+.c-check input{width:16px;height:16px;margin:0;accent-color:var(--t-warm);cursor:pointer}
+.c-check input:disabled+span{opacity:.45}
+.c-checks{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:12px}
+#cm-form,#pv-body .c-form{margin-top:10px}
+
+/* résultats d'une offre */
+.c-res{margin:auto 0 0;display:flex;flex-direction:column;border-top:1px solid var(--rule)}
+.c-res div{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--rule)}
+.c-res dt{font-size:12px;color:var(--mist)}
+.c-res dd{margin:0;font-family:var(--f-data);font-size:14px;color:var(--frost);text-align:right}
+.c-res dd.pos{color:var(--ok)}.c-res dd.neg{color:var(--crit)}
+.c-res div:nth-child(2) dd{font-family:var(--f-display);font-weight:800;font-size:24px;line-height:1}
+
+/* journée type solaire */
+.c-bar-cons{fill:var(--mist);opacity:.85}
+.c-pv-area{fill:var(--t-warm);opacity:.14}
+.c-pv-line{fill:none;stroke:var(--t-warm);stroke-width:2.2}
+.legend i.c-lg-cons{background:var(--mist)}
+.legend i.c-lg-pv{background:var(--t-warm)}
+#pv-chart{touch-action:pan-y;cursor:crosshair;margin-top:4px}
+
+@media (max-width:900px){.c-offers{grid-template-columns:1fr}}
+@media (max-width:480px){
+  .a-cell b{font-size:24px}
+  .c-form,.c-form-wide{grid-template-columns:1fr}
+  .c-res div:nth-child(2) dd{font-size:20px}
+}
+/* Offres du marché : ta propre offre mise en évidence */
+.a-table tr.mk-mine td{background:color-mix(in oklab,var(--t-cold) 10%,transparent)}
+.a-table td .label{display:inline-block;margin-top:2px;letter-spacing:.06em}

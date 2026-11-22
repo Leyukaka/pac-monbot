@@ -82,7 +82,7 @@ export default {
 
     const house = priv || env.SHOW_HOUSE === "1";
     // /api/cost : coût de l'électricité, seulement dans l'espace privé (ou SHOW_HOUSE=1).
-    const route = { "/api/now": now, "/api/series": series, "/api/health": health, ...(house ? { "/api/cost": cost, "/api/analysis": analysis } : {}) }[path];
+    const route = { "/api/now": now, "/api/series": series, "/api/health": health, ...(house ? { "/api/cost": cost, "/api/analysis": analysis, "/api/costdata": costData } : {}) }[path];
     if (!route) return json({ error: "inconnu" }, 404);
 
     // Cache 60 s sur une clé normalisée (fenêtres arrondies), pour absorber les rafraîchissements.
@@ -96,7 +96,7 @@ export default {
     let res;
     try {
       // Le coût ne bouge qu'une fois par heure : 10 min de cache (lecture de ~10 000 lignes horaires).
-      res = json(await route(env, url.searchParams, house), 200, route === cost || route === analysis ? 600 : CACHE_S);
+      res = json(await route(env, url.searchParams, house), 200, route === cost || route === analysis || route === costData ? 600 : CACHE_S);
     } catch (e) {
       console.error("api", url.pathname, e && e.stack || e);
       return json({ error: "erreur interne" }, 500);
@@ -575,6 +575,31 @@ async function costCompute(env, T) {
 // mode ligne à ligne : prix min = « creuse », max = « pointe », le reste = « base » ; mode simple : HC = creuse, sinon base.
 // Période : ?d0=AAAA-MM-JJ&d1=AAAA-MM-JJ (jours locaux inclus, 400 jours au plus). Sans période : 62 derniers jours, gardés en base une heure.
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+// ---------- données brutes pour la page Coûts (privé) ----------
+// Quarts d'heure du compteur sur la période (?d0=&d1=, jours locaux, 400 jours au plus ; défaut : tout ce qui est en base)
+// + grille de prix tout compris par heure locale, pour que la page simule d'autres offres, abonnements, partage et solaire.
+// q : [ts UTC début du quart d'heure, kW moyen, kW couvert par le partage ou null].
+async function costData(env, q) {
+  const T = tariff(env);
+  const d0 = q?.get("d0"), d1 = q?.get("d1");
+  if ((d0 || d1) && (!DAY_RE.test(d0 ?? "") || !DAY_RE.test(d1 ?? "") || d1 < d0 || Date.parse(d1) - Date.parse(d0) > 400 * 864e5)) return { error: "période invalide" };
+  const since = d0 ? Date.parse(d0 + "T00:00:00Z") / 1000 - 86400 : 0, until = d1 ? Date.parse(d1 + "T00:00:00Z") / 1000 + 2 * 86400 : nowS() + 3600;
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: T.tz, year: "numeric", month: "2-digit", day: "2-digit" });
+  const dayOf = (ts) => fmt.format(new Date(ts * 1000));
+  const rows = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw, sh FROM grid WHERE ts >= ? AND ts < ? ORDER BY ts").bind(since, until).all()
+    .catch(() => ({ results: [] }))).results : [];
+  const qs = rows.filter((r) => { if (!d0) return true; const d = dayOf(r.ts); return d >= d0 && d <= d1; }).map((r) => [r.ts, r.kw, r.sh ?? null]);
+  const all = env.LENEDA_POD ? await env.DB.prepare("SELECT MIN(ts) a, MAX(ts) b FROM grid").first().catch(() => null) : null;
+  const hours = (we) => [...Array(24)].map((_, h) => Math.round(T.supplier(we, h, h * 60 + 30) * 1e5) / 1e5);
+  return {
+    tz: T.tz, period: { d0, d1, span: all?.a ? { from: dayOf(all.a), to: dayOf(all.b) } : null },
+    tariff: { mode: T.mode, label: T.label, monthly: T.monthly, pref: T.pref, overrun: T.overrun, shared: T.shared,
+      vat: T.vat ?? null, net: T.net ?? null, tax: T.tax ?? null, comp: T.comp ?? null, se: T.se ?? null, sv: T.sv ?? null,
+      prices: { wd: hours(false), we: hours(true) } },
+    q: qs,
+  };
+}
+
 async function analysis(env, q) {
   const T = tariff(env), key = "a2:" + JSON.stringify(T);
   const d0 = q?.get("d0"), d1 = q?.get("d1");

@@ -1,4 +1,4 @@
-// PAC Monbot : rendu à partir de /api/now et /api/series. Aucune dépendance.
+// PAC/POWER : rendu à partir de /api/now et /api/series. Aucune dépendance.
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -368,7 +368,7 @@
     }
     // bilan 14 j : journal d'énergie NIBE (heure passée), chauffage + eau chaude + appoint
     {
-      const svg = $("c-energy"), W = 1000, H = 240, pad = { l: 40, r: 44, t: 14, b: 24 }, n = 14;
+      const svg = $("c-energy"), W = 1000, H = 240, pad = { l: 40, r: 44, t: 26, b: 24 }, n = 14;
       svg.replaceChildren();
       // Moyenne du jour des valeurs « heure passée » (kWh) × 24 = énergie du jour.
       const m = (p) => new Map((s[p] || []).map((r) => [r[0], r[1]]));
@@ -383,7 +383,7 @@
       const g = el("g", { class: "grid" }), ax = el("g", { class: "axis" });
       ymax.forEach((t) => { g.appendChild(el("line", { x1: pad.l, x2: W - pad.r, y1: y(t), y2: y(t) })); ax.appendChild(el("text", { x: pad.l - 8, y: y(t) + 3, "text-anchor": "end" }, String(t))); });
       [0, 2, 4, 6].forEach((t) => ax.appendChild(el("text", { x: W - pad.r + 8, y: yc(t) + 3 }, String(t))));
-      ax.appendChild(el("text", { x: W - pad.r + 8, y: pad.t - 2 }, "COP"));
+      ax.appendChild(el("text", { x: W - pad.r + 8, y: pad.t - 14 }, "COP"));
       svg.append(g, ax);
       const slot = (W - pad.l - pad.r) / n, bw = slot * 0.62, cp = [];
       days.forEach((d, i) => {

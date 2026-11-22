@@ -1,4 +1,4 @@
-# pac: NIBE heat pump and home electricity dashboard (myUplink)
+# PAC/POWER: NIBE heat pump and home electricity dashboard (myUplink)
 
 A self-hosted, real-time dashboard for a **NIBE heat pump** connected to **myUplink**, and for the **electricity consumption of the home** around it: what the heat pump uses, what the whole house draws from the meter, what it costs per tariff band, and when something needs attention.
 
@@ -13,6 +13,8 @@ It shows:
 - hover any chart to read the exact values under the cursor;
 - in the private area only: an **Analysis** tab (`/prive/analyse`): cost and kWh per tariff band for the house and the heat pump, average hourly profile (weekday / weekend), energy sharing gain or loss per band, 15-minute peak histogram against the reference power, monthly table, and what-if simulations (shifting load out of peak hours, reference power);
 - in the private area only: an electricity cost board (today, yesterday, 7 days, month to date with an end-of-month projection, 30-day bars split peak / off-peak, whole-house consumption from the meter or estimated from the phase currents);
+- in the private area only: a **Costs** tab (`/prive/couts`): real cost of the period, comparison with other offers (single price, peak / off-peak, and the market offers read from the official ILR Calculix comparison tool, each recalculated on your own quarter-hour consumption), a reference power (subscription) simulation, an energy community simulation, and a solar panel simulation with optional grid injection;
+- in the private area only: six display themes (night, day, high contrast, neumorphism, glassmorphism, cyber-brutalism), chosen from small swatches in the top bar and remembered in the browser;
 - in the private area only: an **alerts** panel at the top of the page, with a red status dot in the header. It lists active NIBE alarms (myUplink notifications), alarm codes reported by the modules (outdoor unit EB101, EB100, VVM 500), and API key or data-feed problems: myUplink key rejected, collection stopped, quota exceeded, Leneda key rejected, Leneda push from the home PC stopped, push token rejected.
 
 | Schematic while running (`?demo=64`) | Phone, defrost (`?demo=defrost`) |

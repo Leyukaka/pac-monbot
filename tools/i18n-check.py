@@ -23,9 +23,9 @@ class P(HTMLParser):
         if tag in ("script", "style"): s.skip -= 1
     def handle_data(s, d):
         if not s.skip: add(d)
-for f in ("index.html", "analyse.html"):
+for f in ("index.html", "analyse.html", "couts.html"):
     P().feed(open(f"{root}/{f}", encoding="utf-8").read())
-for f, fn in (("app.js", "t"), ("rapport.js", "tr"), ("i18n.js", "t")):
+for f, fn in (("app.js", "t"), ("rapport.js", "tr"), ("couts.js", "tr"), ("i18n.js", "t"), ("theme.js", "t")):
     src = open(f"{root}/{f}", encoding="utf-8").read()
     for m in re.finditer(r'\b' + fn + r'\(\s*"((?:[^"\\]|\\.)*)"', src): add(m.group(1))
     for m in re.finditer(r'\b' + fn + r'\(\s*([a-z]+ > 1 \? )?"((?:[^"\\]|\\.)*)" : "((?:[^"\\]|\\.)*)"', src):
@@ -37,7 +37,7 @@ for k in ["€/kWh HT selon l'heure", "fournisseur", "réseau", "compensation", 
     add(k) if k not in ("h",) else (keys.append(k) if k not in keys else None)
 # Compare avec site/i18n-dict.js : clés manquantes (le texte reste en français).
 src = open(f"{root}/i18n-dict.js", encoding="utf-8").read()
-skip = {"Monbot", "texte source"}
+skip = {"Monbot", "texte source", "POWER", "PAC/POWER", "3 kW", "7 kW", "12 kW", "17 kW"}
 for lang in ("en", "de"):
     m = re.search(r"\b" + lang + r": (\{.*?\}),\n", src, re.S)
     tab = json.loads(m.group(1))

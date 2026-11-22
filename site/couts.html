@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PAC/POWER · Coûts</title>
+<meta name="description" content="Coûts privés de l'électricité : coût réel, comparaison d'offres, puissance de référence, communauté énergétique et panneaux solaires.">
+<meta name="theme-color" content="#0A111F">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/couts.css">
+<link rel="stylesheet" href="/themes.css">
+<script src="/theme.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand"><span class="word">PAC<span>/</span>POWER</span></div>
+    <nav class="views" aria-label="Vues"><a href="./">Tableau</a><a href="./analyse">Analyse</a><a href="./couts" aria-current="page">Coûts</a></nav>
+    <span class="pill num" id="c-range">-</span>
+  </header>
+
+  <div class="wait" id="c-wait">Chargement des coûts…</div>
+
+  <div class="a-period" id="c-period" hidden>
+    <div class="tabs" role="group" aria-label="Période" id="a-presets"></div>
+    <span class="label num" id="c-period-v"></span>
+  </div>
+
+  <section aria-label="Coûts réels" class="a-sec">
+    <div class="sec-h"><h2>Coûts réels</h2><span class="label">ta consommation au compteur, à ton tarif</span></div>
+    <div class="panel wide">
+      <div class="a-grid num" id="c-sum"></div>
+      <div class="meta c-sub"><h3>Coût par tranche horaire</h3><span class="label" id="c-bands-l">-</span></div>
+      <div class="a-grid num" id="c-bands"></div>
+      <p class="why" id="c-sum-why"></p>
+    </div>
+  </section>
+
+  <section aria-label="Comparer une autre offre" class="a-sec">
+    <div class="sec-h"><h2>Comparer une autre offre</h2><span class="label">même consommation, quart d'heure par quart d'heure</span></div>
+    <p class="c-warn">Les prix des offres sont à saisir depuis les grilles des fournisseurs (prix tout compris : énergie, taxes, réseau, TVA). Rien n'est inventé : les valeurs de départ viennent de ta propre grille.</p>
+    <div class="c-offers">
+      <div class="panel c-card c-cur">
+        <div class="meta"><h3>Ton offre actuelle</h3><span class="label">lecture seule</span></div>
+        <p class="why" id="o0-desc"></p>
+        <dl class="c-res num" id="o0-res"></dl>
+      </div>
+      <div class="panel c-card">
+        <div class="meta"><h3>Prix unique</h3></div>
+        <div class="c-form">
+          <label class="c-field"><span class="label">Prix tout compris €/kWh</span><input class="c-in num" type="number" id="o1-p" step="0.0001" min="0" inputmode="decimal"></label>
+          <label class="c-field"><span class="label">Fixe mensuel €</span><input class="c-in num" type="number" id="o1-f" step="0.0001" min="0" inputmode="decimal"></label>
+        </div>
+        <dl class="c-res num" id="o1-res"></dl>
+      </div>
+      <div class="panel c-card">
+        <div class="meta"><h3>Heures creuses / pleines</h3></div>
+        <div class="c-form">
+          <label class="c-field"><span class="label">Prix heures creuses €/kWh</span><input class="c-in num" type="number" id="o2-hc" step="0.0001" min="0" inputmode="decimal"></label>
+          <label class="c-field"><span class="label">Prix heures pleines €/kWh</span><input class="c-in num" type="number" id="o2-hp" step="0.0001" min="0" inputmode="decimal"></label>
+          <label class="c-field"><span class="label">Plages creuses</span><input class="c-in num" type="text" id="o2-r" placeholder="22-6" spellcheck="false" autocomplete="off"></label>
+          <label class="c-field"><span class="label">Fixe mensuel €</span><input class="c-in num" type="number" id="o2-f" step="0.0001" min="0" inputmode="decimal"></label>
+        </div>
+        <p class="c-err" id="o2-err" hidden>Plages non reconnues. Exemple : 22-6 ou 23:30-7:30,12-14</p>
+        <dl class="c-res num" id="o2-res"></dl>
+      </div>
+    </div>
+    <p class="c-best" id="c-best"></p>
+  </section>
+
+  <section aria-label="Offres du marché" class="a-sec">
+    <div class="sec-h"><h2>Offres du marché</h2><span class="label">comparateur ILR Calculix, relevé du 22/11/2026</span></div>
+    <div class="panel wide a-scroll"><table class="a-table num" id="mk-table"></table></div>
+    <p class="why" id="mk-why"></p>
+  </section>
+
+  <section aria-label="Changer d'abonnement" class="a-sec">
+    <div class="sec-h"><h2>Changer d'abonnement</h2><span class="label">puissance de référence Creos et dépassement</span></div>
+    <div class="panel wide">
+      <div class="c-form c-form-wide">
+        <div class="c-field"><span class="label">Puissance de référence</span>
+          <div class="tabs" role="group" aria-label="Puissance de référence" id="c-pref"><button data-p="3" aria-pressed="false">3 kW</button><button data-p="7" aria-pressed="false">7 kW</button><button data-p="12" aria-pressed="false">12 kW</button><button data-p="17" aria-pressed="false">17 kW</button></div></div>
+        <label class="c-field"><span class="label">Prix du dépassement €/kWh</span><input class="c-in num" type="number" id="ov-p" step="0.0001" min="0" inputmode="decimal"></label>
+      </div>
+      <p class="why" id="ov-note"></p>
+      <div class="a-grid num" id="c-pref-cells"></div>
+      <p class="why" id="c-pref-why"></p>
+    </div>
+  </section>
+
+  <section aria-label="Communauté énergétique" class="a-sec">
+    <div class="sec-h"><h2>Communauté énergétique</h2><span class="label">partage d'énergie au même quart d'heure</span></div>
+    <div class="panel wide">
+      <label class="c-check"><input class="c-in" type="checkbox" id="cm-on"><span>Simuler une communauté</span></label>
+      <div class="c-form" id="cm-form">
+        <label class="c-field"><span class="label">Prix d'un kWh partagé €/kWh</span><input class="c-in num" type="number" id="cm-price" step="0.0001" min="0" inputmode="decimal"></label>
+        <label class="c-field"><span class="label">Part couverte %</span><input class="c-in num" type="number" id="cm-part" step="1" min="0" max="100" inputmode="decimal"></label>
+        <label class="c-field"><span class="label">Plage horaire</span><input class="c-in num" type="text" id="cm-range" placeholder="10-16" spellcheck="false" autocomplete="off"></label>
+        <label class="c-field"><span class="label">Jours</span><select class="c-in" id="cm-days"><option value="all">Tous les jours</option><option value="wd">Semaine</option><option value="we">Week-end</option></select></label>
+      </div>
+      <p class="c-err" id="cm-err" hidden>Plage non reconnue. Exemple : 10-16</p>
+      <div class="meta c-sub"><h3 id="cm-h">-</h3><span class="label" id="cm-l"></span></div>
+      <div class="a-grid num" id="cm-cells"></div>
+      <p class="why" id="cm-why"></p>
+    </div>
+  </section>
+
+  <section aria-label="Panneaux solaires" class="a-sec">
+    <div class="sec-h"><h2>Panneaux solaires</h2><span class="label">autoconsommation et injection réseau, estimation</span></div>
+    <div class="panel wide">
+      <label class="c-check"><input class="c-in" type="checkbox" id="pv-on"><span>J'ai ou j'envisage des panneaux</span></label>
+      <div id="pv-body">
+        <div class="c-form">
+          <label class="c-field"><span class="label">Puissance crête kWc</span><input class="c-in num" type="number" id="pv-kwc" step="0.1" min="0" inputmode="decimal"></label>
+          <label class="c-field"><span class="label">Orientation</span><select class="c-in" id="pv-or"><option value="s">Sud</option><option value="eo">Est-ouest</option><option value="e">Est</option><option value="o">Ouest</option></select></label>
+          <label class="c-field"><span class="label">Tarif d'injection €/kWh</span><input class="c-in num" type="number" id="pv-tar" step="0.0001" min="0" inputmode="decimal"></label>
+          <label class="c-field"><span class="label">Prix de vente communauté €/kWh</span><input class="c-in num" type="number" id="pv-cmp" step="0.0001" min="0" inputmode="decimal"></label>
+        </div>
+        <div class="c-checks">
+          <label class="c-check"><input class="c-in" type="checkbox" id="pv-inj"><span>Injecter le surplus sur le réseau</span></label>
+          <label class="c-check"><input class="c-in" type="checkbox" id="pv-cm"><span>Le surplus va d'abord à la communauté</span></label>
+        </div>
+        <p class="why">Tarif d'injection à renseigner selon ton contrat.</p>
+        <div class="a-grid num" id="pv-cells"></div>
+        <div class="meta c-sub"><h3>Journée type</h3>
+          <div class="legend"><span><i class="c-lg-cons"></i>consommation moyenne</span><span><i class="c-lg-pv"></i>production estimée</span></div></div>
+        <svg id="pv-chart" viewBox="0 0 1000 240" role="img" aria-label="Consommation moyenne et production estimée par heure locale"></svg>
+        <p class="why" id="pv-why"></p>
+      </div>
+      <p class="why" id="pv-off">Coche la case pour estimer la production, l'autoconsommation et la recette d'injection sur ta consommation réelle.</p>
+    </div>
+  </section>
+
+  <section aria-label="Méthode" class="a-sec">
+    <div class="sec-h"><h2>Méthode et hypothèses</h2><span class="label">formules et sources</span></div>
+    <div class="panel wide">
+      <ul class="why a-method">
+        <li>Consommation : quarts d'heure du compteur Smarty publiés par Leneda, énergie = kW moyen × 0,25 h.</li>
+        <li>Prix fournisseur : grille horaire de ton contrat (semaine / week-end), tout compris (énergie, compensation, taxe, réseau, TVA), à l'heure locale du Luxembourg.</li>
+        <li>Coût d'un quart d'heure = (kWh − kWh partagés) × prix fournisseur de l'heure + kWh partagés × prix du kWh partagé.</li>
+        <li>Tranches : creuse = prix le plus bas de la grille, pointe = prix le plus haut, base = les autres.</li>
+        <li>Part fixe : abonnement mensuel TTC × 12 / 365 par jour de données. Projection sur 12 mois : règle de trois sur les jours couverts.</li>
+        <li>Frais fixes Creos 2026 HT par mois selon la puissance de référence : 3 kW 7,42 €, 7 kW 12,84 €, 12 kW 19,61 €, 17 kW 26,39 € ; plus comptage 5,72 € et part fixe fournisseur 1,50 € ; le tout plus TVA. Source : switchr.lu, ILR.</li>
+        <li>Dépassement : somme sur les quarts d'heure de max(0, kW − puissance de référence) × 0,25 h.</li>
+        <li>Communauté simulée : kWh partagés = part × kWh dans la plage ; gain = kWh partagés × (prix fournisseur − prix partagé).</li>
+        <li>Solaire : production mensuelle typique au Luxembourg (kWh/kWc : 27, 45, 80, 113, 128, 132, 135, 120, 92, 60, 30, 22), en cloche entre lever et coucher du soleil (jour de 8 h en décembre à 16,3 h en juin), midi solaire vers 12:35 en heure d'hiver.</li>
+        <li>Jours fériés comptés comme jours de semaine. Tout est calculé dans ton navigateur ; tes saisies restent dans ce navigateur.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span class="label">Données privées · Cloudflare Access</span><a class="label priv-link" href="./">Retour au tableau</a></footer>
+</div>
+<script src="/i18n-dict.js" defer></script>
+<script src="/i18n.js" defer></script>
+<script src="/couts.js" defer></script>
+</body>
+</html>

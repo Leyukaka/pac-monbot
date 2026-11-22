@@ -1,4 +1,4 @@
-// PAC Monbot · page Analyse (espace privé) : rendu de /prive/api/analysis. Aucune dépendance.
+// PAC/POWER · page Analyse (espace privé) : rendu de /prive/api/analysis. Aucune dépendance.
 // Nommé rapport.js : les bloqueurs de pub bloquent « analyse.js » (ressemble à un script de statistiques).
 (() => {
   "use strict";

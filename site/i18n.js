@@ -1,4 +1,4 @@
-// PAC Monbot · langues. Le texte source est le français : il sert de clé. Aucune dépendance.
+// PAC/POWER · langues. Le texte source est le français : il sert de clé. Aucune dépendance.
 // Choix : ?lang=xx, sinon le choix mémorisé, sinon la langue du navigateur (navigator.languages), sinon l'anglais.
 // Le HTML statique est traduit au chargement (nœuds texte + aria-label/title/alt + meta description) ;
 // le JavaScript passe par I18N.t("texte source", { variables }).
@@ -52,5 +52,8 @@
       const u = new URL(location.href); u.searchParams.delete("lang"); location.replace(u.toString());
     });
     bar.appendChild(nav);
+    // Hauteur de la barre collante : les rangées collantes en dessous (période de l'Analyse) se calent dessous.
+    const setH = () => document.documentElement.style.setProperty("--bar-h", bar.offsetHeight + "px");
+    setH(); addEventListener("resize", setH, { passive: true });
   }
 })();
