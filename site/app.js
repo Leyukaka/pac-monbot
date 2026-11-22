@@ -27,8 +27,8 @@
   const MIN_WIN = 2 * 3600;
 
   const val = (pid) => { const ids = Array.isArray(pid) ? pid : [pid]; for (const p of ids) { const r = NOW?.points?.[p]; if (r && r.last_val != null) return r.last_val; } return null; };
-  // Codes de priorité NIBE (49994 / registre 43086) : 20 et 60 vérifiés dans la doc, les autres d'après la communauté.
-  const PRIO = { 10: "arrêt", 20: "eau chaude", 30: "chauffage", 40: "piscine", 50: "transfert", 60: "rafraîchissement" };
+  // Codes de priorité NIBE (49994 / registre 43086), liste Modbus S-series : pas de code 50.
+  const PRIO = { 10: "arrêt", 20: "eau chaude", 30: "chauffage", 40: "piscine", 60: "rafraîchissement" };
   // Priorité NIBE (49994) : 20 = eau chaude. Sans elle (ancien relevé), repli : GP12 tourne et départ > calculé + 4.
   const isEcs = () => { const p = val(ID.prio), sup = val(ID.supply), calc = val(ID.calc);
     return p != null ? p === 20 : val(ID.gp12) > 0 && sup != null && calc != null && sup > calc + 4; };
@@ -62,7 +62,7 @@
     const hz = val(ID.hz), sup = val(ID.supply), ret = val(ID.ret), calc = val(ID.calc), dm = val(dmId());
     const defrost = val(ID.defrost);
     const ecsOn = isEcs();
-    $("mode").textContent = hz > 0 ? `Compresseur ${fr(hz, 0)} Hz · ${defrost > 0 ? "dégivrage" : ecsOn ? "eau chaude" : PRIO[val(ID.prio)] ?? "chauffage"}` : "Compresseur à l'arrêt";
+    $("mode").textContent = hz > 0 ? `Compresseur ${fr(hz, 0)} Hz · ${defrost > 0 ? "dégivrage" : ecsOn ? "eau chaude" : PRIO[val(ID.prio)] ?? "chauffage"}` : "Compresseur à l'arrêt" + (PRIO[val(ID.prio)] && val(ID.prio) !== 10 ? ` · priorité ${PRIO[val(ID.prio)]}` : "");
     $("supply").textContent = fr(sup);
     $("ret").textContent = fr(ret) + "°";
     $("calc").textContent = fr(calc) + "°";
@@ -145,18 +145,21 @@
     const afDelta = af != null && afOld != null ? af - afOld : null;
     // Dégivrage : cycle inversé (vanne 4 voies), les écarts frigo et eau n'ont plus de sens.
     const defrost = val(ID.defrost) > 0, live = hz > 0 && !defrost, ecs = isEcs(), off = defrost ? "Dégivrage" : "Compresseur à l'arrêt";
-    // Chauffage : valable dès que GP1 tourne hors eau chaude, compresseur ou appoint seul.
-    const heating = val(ID.gp1) > 0 && !ecs && !defrost && (hz > 0 || val(ID.prio) === 30);
+    // Chauffage : la VVM 500 alimente les radiateurs depuis sa cuve (GP1). QN10/QN35 ne basculent que le circuit de charge :
+    // l'écart BT2 − BT3 reste valable pendant l'eau chaude et le dégivrage, il suffit que GP1 tourne.
+    const heating = val(ID.gp1) > 0;
     // Débit du circuit de charge estimé : puissance calorifique EB101 / (4,18 kJ/kg·K × (BT12 − EB101-BT3)).
     const dtc = val(ID.condOut) != null && val(ID.unitRet) != null ? val(ID.condOut) - val(ID.unitRet) : null, qh = val(ID.heat);
     const flow = live && dtc >= 2 && qh > 0 ? (qh / (4.18 * dtc)) * 60 : null;
     const html = [
-      chip("Surchauffe", live ? fr(sh) : null, "K", "aspiration − saturation BP8", band(sh, 4, 12, 2, 15) === "ok" ? "Saine · 4 à 12 K" : "À surveiller", band(sh, 4, 12, 2, 15), live ? null : off),
-      chip("Sous-refroid.", live ? fr(sc) : null, "K", "saturation BP9 − liquide", band(sc, 2, 9, 1, 12) === "ok" ? "Correct · 2 à 9 K" : "À surveiller", band(sc, 2, 9, 1, 12), live ? null : off),
+      chip("Surchauffe", live ? fr(sh) : null, "K", "aspiration − saturation BP8", band(sh, 4, 10, 2, 14) === "ok" ? "Saine · 4 à 10 K" : "À surveiller", band(sh, 4, 10, 2, 14), live ? null : off),
+      chip("Sous-refroid.", live ? fr(sc) : null, "K", "saturation BP9 − liquide", band(sc, 3, 9, 2, 12) === "ok" ? "Correct · 3 à 9 K" : "À surveiller", band(sc, 3, 9, 2, 12), live ? null : off),
       // Circuit chauffage maison (BT2 départ, BT3 retour, pompe GP1). Sans objet pendant l'eau chaude : les vannes QN10/QN35 envoient l'eau à la cuve.
       chip("Écart chauffage", heating ? fr(dt) : null, "K", "circuit radiateurs · BT2 − BT3", band(dt, 3, 9, 2, 12) === "ok" ? "Normal · 3 à 9 K" : "Débit à vérifier", band(dt, 3, 9, 2, 12),
-        heating ? null : defrost ? "Dégivrage" : ecs ? "Production d'eau chaude" : "Pas de chauffage en cours"),
-      chip("Débit de charge", flow != null ? fr(flow, 0) : null, "l/min", `estimé · ΔT BT12 − EB101-BT3 ${fr(dtc)} K`, "Estimation", "frost", live ? "ΔT trop faible" : off),
+        heating ? null : "Pompe GP1 à l'arrêt"),
+      // Plage de débit chauffage F2120-20 : 0,19 à 0,75 l/s = 11 à 45 l/min (manuel installateur), minimum dégivrage 0,48 l/s.
+      chip("Débit de charge", flow != null ? fr(flow, 0) : null, "l/min", `estimé · ΔT ${fr(dtc)} K` + (qh > 0 && val(ID.pNow) > 0 ? ` · COP ${fr(qh / val(ID.pNow), 1)}` : ""),
+        flow >= 11 && flow <= 45 ? "Plage F2120 · 11 à 45" : "Hors plage F2120", flow == null ? "mist" : flow >= 11 && flow <= 45 ? "ok" : "warn", live ? "ΔT trop faible" : off),
       chip("Refoulement", dis != null ? fr(dis) : null, "°C", "limite vers 110 °C", dis < 100 ? "Marge OK" : dis < 110 ? "Chaud" : "Trop chaud", dis == null ? "mist" : dis < 100 ? "ok" : dis < 110 ? "warn" : "crit"),
       chip("Cycle moyen", cyc != null ? fr(cyc, 0) : null, "min", cycWhy, cyc >= 30 ? "Pas de cycles courts" : "Cycles courts", cyc == null ? "mist" : cyc >= 30 ? "ok" : cyc >= 15 ? "warn" : "crit"),
       chip("Appoint élec.", af != null ? fr(af) : null, "", afDelta == null ? "facteur temps" : afDelta > 0 ? `+${fr(afDelta)} sur 7 j` : "stable sur 7 j", afDelta > 0 ? "A servi cette semaine" : "Pas utilisé", af == null ? "mist" : afDelta > 0 ? "warn" : "ok"),
