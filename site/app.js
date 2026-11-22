@@ -17,7 +17,7 @@
     be3: "40079", be2: "40081", be1: "40083",
     hz: "44701", state: "44064", defrost: "44703", starts: "44069", hours: "44071", hoursEcs: "44073",
     dis: "44059", liq: "44060", suc: "44061", evap: "44363", condOut: "44058", unitRet: "44055", bt28: "44362",
-    hp: "41163", lp: "41162", flow: "40072",
+    hp: "41163", lp: "41162", prio: "49994", // 40072 (débitmètre BF1) absent sur cette installation
   };
 
   let NOW = null;
@@ -27,6 +27,9 @@
   const MIN_WIN = 2 * 3600;
 
   const val = (pid) => { const ids = Array.isArray(pid) ? pid : [pid]; for (const p of ids) { const r = NOW?.points?.[p]; if (r && r.last_val != null) return r.last_val; } return null; };
+  // Priorité NIBE (49994) : 20 = eau chaude. Sans elle (ancien relevé), repli : GP12 tourne et départ > calculé + 4.
+  const isEcs = () => { const p = val(ID.prio), sup = val(ID.supply), calc = val(ID.calc);
+    return p != null ? p === 20 : val(ID.gp12) > 0 && sup != null && calc != null && sup > calc + 4; };
   const unit = (pid) => NOW?.points?.[pid]?.unit || "";
   const dmId = () => ID.dm.find((p) => NOW?.points?.[p]?.last_val != null) || ID.dm[0];
 
@@ -56,7 +59,7 @@
 
     const hz = val(ID.hz), sup = val(ID.supply), ret = val(ID.ret), calc = val(ID.calc), dm = val(dmId());
     const defrost = val(ID.defrost);
-    const ecsOn = val(ID.gp12) > 0 && sup != null && calc != null && sup > calc + 4;
+    const ecsOn = isEcs();
     $("mode").textContent = hz > 0 ? `Compresseur ${fr(hz, 0)} Hz · ${defrost > 0 ? "dégivrage" : ecsOn ? "eau chaude" : "chauffage"}` : "Compresseur à l'arrêt";
     $("supply").textContent = fr(sup);
     $("ret").textContent = fr(ret) + "°";
@@ -136,11 +139,13 @@
     const af = val(ID.addFactor);
     const afOld = c7[ID.addFactor]?.value;
     const afDelta = af != null && afOld != null ? af - afOld : null;
-    const live = hz > 0;
+    const live = hz > 0, ecs = isEcs();
     const html = [
       chip("Surchauffe", live ? fr(sh) : null, "K", "aspiration - évaporateur", band(sh, 3, 9, 1.5, 12) === "ok" ? "Saine · 3 à 9 K" : "À surveiller", band(sh, 3, 9, 1.5, 12), live ? null : "Compresseur à l'arrêt"),
       chip("Sous-refroid.", live ? fr(sc) : null, "K", "condensation - liquide", band(sc, 2, 9, 1, 12) === "ok" ? "Correct · 2 à 9 K" : "À surveiller", band(sc, 2, 9, 1, 12), live ? null : "Compresseur à l'arrêt"),
-      chip("Écart départ/retour", live ? fr(dt) : null, "K", "débit du circuit", band(dt, 3, 9, 2, 12) === "ok" ? "Normal · 3 à 9 K" : "Débit à vérifier", band(dt, 3, 9, 2, 12), live ? null : "Compresseur à l'arrêt"),
+      // Circuit chauffage maison (BT2 départ, BT3 retour, pompe GP1). Sans objet pendant l'eau chaude : la vanne envoie l'eau au ballon.
+      chip("Écart chauffage", live && !ecs ? fr(dt) : null, "K", "circuit radiateurs · BT2 − BT3", band(dt, 3, 9, 2, 12) === "ok" ? "Normal · 3 à 9 K" : "Débit à vérifier", band(dt, 3, 9, 2, 12),
+        !live ? "Compresseur à l'arrêt" : ecs ? "Production d'eau chaude" : null),
       chip("Refoulement", dis != null ? fr(dis) : null, "°C", "limite vers 110 °C", dis < 100 ? "Marge OK" : dis < 110 ? "Chaud" : "Trop chaud", dis == null ? "mist" : dis < 100 ? "ok" : dis < 110 ? "warn" : "crit"),
       chip("Cycle moyen", cyc != null ? fr(cyc, 0) : null, "min", cycWhy, cyc >= 30 ? "Pas de cycles courts" : "Cycles courts", cyc == null ? "mist" : cyc >= 30 ? "ok" : cyc >= 15 ? "warn" : "crit"),
       chip("Appoint élec.", af != null ? fr(af) : null, "", afDelta == null ? "facteur temps" : afDelta > 0 ? `+${fr(afDelta)} sur 7 j` : "stable sur 7 j", afDelta > 0 ? "A servi cette semaine" : "Pas utilisé", af == null ? "mist" : afDelta > 0 ? "warn" : "ok"),
@@ -325,7 +330,7 @@
       });
       if (days.length) [[0, "start"], [15, "middle"], [29, "end"]].forEach(([i, a]) => svg.appendChild(el("text", { x: i === 29 ? W : i * (bw + gap) + (i ? bw / 2 : 0), y: 128, "text-anchor": a, "font-family": "var(--f-data)", "font-size": 10, fill: "var(--mist)" }, fmtX(start + i * 86400, 1e9))));
     }
-    // bilan 14 j (estimations : électricité = Hz moyen × 40 W × 24 h ; chaleur = débit moyen × ΔT moyen)
+    // bilan 14 j : journal d'énergie NIBE (heure passée), chauffage + eau chaude + appoint
     {
       const svg = $("c-energy"), W = 1000, H = 240, pad = { l: 40, r: 44, t: 14, b: 24 }, n = 14;
       svg.replaceChildren();
