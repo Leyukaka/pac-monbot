@@ -374,23 +374,19 @@
     const c = COST.c;
     if (!c || !c.days) { sec.hidden = true; return; }
     sec.hidden = false;
-    const T = c.tariff, pHC = T.hc ?? T.base;
+    // Les montants sont calculés par le serveur, tranche horaire par tranche horaire (voir tariff() dans src/worker.js).
+    const T = c.tariff;
     const by = new Map(c.days.map((d) => [d.d, d]));
-    // Communauté énergétique : sur un jour où Leneda a publié le partage, la part couverte est payée SHARED_KWH au lieu
-    // du tarif fournisseur ; la PAC prend le même mélange que la maison (le compteur ne sait pas quel appareil l'a consommée).
-    const shareF = (d) => (T.shared && d && d.sharedQ && d.grid > 0 ? ((d.grid - d.shared) * T.base + d.shared * T.shared) / (d.grid * T.base) : 1);
-    const price = (d) => (d ? (d.hp * T.base + d.hc * pHC) * shareF(d) : null);
-    const kwh = (d) => (d ? d.hp + d.hc : null);
-    // Maison : compteur Smarty (Leneda) s'il couvre au moins autant d'heures que l'estimation 3 phases × 230 V.
-    const meter = (d) => !!(d && d.gridQ >= 92);
-    const houseKwh = (d) => (meter(d) ? d.grid : d && d.houseHours ? d.house : null);
-    const overEur = (d) => (meter(d) && T.overrun ? (d.over ?? 0) * T.overrun : 0);
-    const houseEur = (d) => { const k = houseKwh(d); return k == null ? null : k * (kwh(d) > 0 ? price(d) / kwh(d) : T.base * shareF(d)) + overEur(d); };
+    const price = (d) => (d && d.hours ? d.pacEur : null);
+    const kwh = (d) => (d && d.hours ? d.pacKwh : null);
+    const meter = (d) => !!d?.meter;
+    const houseKwh = (d) => d?.houseKwh ?? null;
+    const houseEur = (d) => d?.houseEur ?? null;
+    const overEur = (d) => d?.overEur ?? 0;
     const anyMeter = c.days.some(meter);
     $("cost-hc-leg").hidden = !T.hc;
     $("cost-house-leg").textContent = anyMeter ? "maison, compteur Smarty (Leneda)" : "maison, estimation 3 phases × 230 V";
-    const fee = (T.monthly ? `abonnement ${eur(T.monthly)} €/mois` : "hors abonnement") + (T.shared ? ` · partagé ${fr(T.shared, 4)} €/kWh` : "");
-    $("cost-tariff").textContent = (T.hc ? `HP ${fr(T.base, 4)} · HC ${fr(T.hc, 4)} €/kWh (${T.hcHours})` : `${fr(T.base, 4)} €/kWh`) + ` · ${fee}`;
+    $("cost-tariff").textContent = `${T.label} · ` + (T.monthly ? `fixe ${eur(T.monthly)} €/mois` : "hors abonnement");
     const today = by.get(c.today), yday = by.get(addDay(c.today, -1));
     const last7 = [...Array(7)].map((_, i) => by.get(addDay(c.today, -i))).filter(Boolean);
     const sum = (list, f) => list.reduce((a, d) => a + (f(d) ?? 0), 0);
@@ -400,25 +396,27 @@
     const left = Math.max(0, (monthLen(ym) - Number(c.today.slice(8, 10))) * 24 + 24 - (today?.hours ?? 0));
     const mtd = sum(month, price);
     $("k-today").textContent = eur(price(today));
-    $("k-today-why").textContent = today ? `${fr(kwh(today), 1)} kWh depuis minuit` : "pas encore de relevé";
+    $("k-today-why").textContent = today?.hours ? `${fr(kwh(today), 1)} kWh depuis minuit` : "pas encore de relevé";
     $("k-yday").textContent = eur(price(yday));
-    $("k-yday-why").textContent = yday ? `${fr(kwh(yday), 1)} kWh` + (houseKwh(yday) != null ? ` · maison ${meter(yday) ? "" : "≈ "}${eur(houseEur(yday), 0)} €` : "") + (yday.hours < 23 ? ` · ${yday.hours} h de relevés` : "") : "pas de relevé";
+    $("k-yday-why").textContent = yday?.hours ? `${fr(kwh(yday), 1)} kWh` + (houseKwh(yday) != null ? ` · maison ${meter(yday) ? "" : "≈ "}${eur(houseEur(yday), 0)} €` : "") + (yday.hours < 23 ? ` · ${yday.hours} h de relevés` : "") : "pas de relevé";
     $("k-7d").textContent = eur(sum(last7, price));
     $("k-7d-why").textContent = last7.length ? `${fr(sum(last7, kwh), 0)} kWh · ${eur(perH * 24)} € par jour en moyenne` : "-";
     $("k-month").textContent = eur(mtd);
     const hm = month.filter((d) => houseKwh(d) != null);
     $("house-cost-tile").hidden = !hm.length;
     if (hm.length) {
-      const peak = Math.max(0, ...hm.filter(meter).map((d) => d.peak ?? 0)), ov = sum(hm, overEur);
+      const peak = Math.max(0, ...hm.filter(meter).map((d) => d.peak ?? 0)), ov = sum(hm, overEur), sh = hm.filter((d) => d.sharedQ);
+      const gain = sum(sh, (d) => d.gain);
       $("k-house").textContent = eur(sum(hm, houseEur));
       $("k-house-why").textContent = `${fr(sum(hm, houseKwh), 0)} kWh` + (hm.every(meter) ? "" : hm.some(meter) ? " (en partie estimé)" : " (estimation)") +
-        (peak ? ` · pic ${fr(peak, 1)} kW` + (T.pref ? ` / Pref ${fr(T.pref, 0)} kW` : "") : "") + (ov > 0 ? ` · dépassement ${eur(ov)} €` : "") + (hm.some((d) => d.sharedQ) ? ` · ${fr(sum(hm, (d) => d.shared ?? 0), 0)} kWh partagés` : "");
+        (peak ? ` · pic ${fr(peak, 1)} kW` + (T.pref ? ` / Pref ${fr(T.pref, 0)} kW` : "") : "") + (ov > 0 ? ` · dépassement ${eur(ov)} €` : "") +
+        (sh.length ? ` · partage ${fr(sum(sh, (d) => d.shared), 0)} kWh, ${gain >= 0 ? "économie" : "surcoût"} ${eur(Math.abs(gain))} €` : "");
     }
-    // Projection : consommation au rythme des 7 derniers jours ; l'abonnement (s'il est réglé) s'ajoute au mois entier.
-    $("k-month-why").textContent = `fin de mois ≈ ${eur(mtd + perH * left + (T.monthly ?? 0), 0)} €${T.monthly ? " abonnement compris" : ""}` +
+    // Projection : consommation au rythme des 7 derniers jours ; la part fixe (si réglée) s'ajoute au mois entier.
+    $("k-month-why").textContent = `fin de mois ≈ ${eur(mtd + perH * left + (T.monthly ?? 0), 0)} €${T.monthly ? " part fixe comprise" : ""}` +
       (prev.length ? ` · ${prevYm.slice(5)}/${prevYm.slice(0, 4)} : ${eur(sum(prev, price), 0)} €` + (prev.length < monthLen(prevYm) ? " (partiel)" : "") : "");
 
-    // Barres 30 jours : PAC (HP + HC empilées), contour pointillé = maison estimée.
+    // Barres 30 jours : PAC (HP + HC empilées en tarif simple), contour pointillé = maison.
     const svg = $("c-cost"), W = 1000, H = 240, pad = { l: 40, r: 10, t: 14, b: 24 }, n = 30;
     svg.replaceChildren();
     const days = [...Array(n)].map((_, i) => { const k = addDay(c.today, i - n + 1); return { k, d: by.get(k) }; });
@@ -435,21 +433,24 @@
       if (!d) return;
       const he = houseEur(d);
       if (he != null) svg.appendChild(el("rect", { x: x - 2, y: y(he), width: bw + 4, height: y(0) - y(he), fill: "none", stroke: "var(--mist)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
-      const eHp = d.hp * T.base, eHc = d.hc * pHC;
-      svg.appendChild(el("rect", { x, y: y(eHp + eHc), width: bw, height: y(0) - y(eHp), fill: "var(--t-hot)" }));
+      const e = price(d); if (e == null) return;
+      const eHc = T.hc && d.pacKwh > 0 ? (e * d.hc) / d.pacKwh : 0;
+      svg.appendChild(el("rect", { x, y: y(e), width: bw, height: y(0) - y(e - eHc), fill: "var(--t-hot)" }));
       if (eHc > 0) svg.appendChild(el("rect", { x, y: y(eHc), width: bw, height: y(0) - y(eHc), fill: "var(--t-cool)" }));
     });
     hover(svg, (p) => {
       const i = Math.floor((p.x - pad.l) / slot), x = days[i]; if (!x || !x.d) return null;
       const d = x.d, he = houseEur(d);
       return { band: { x: pad.l + slot * i + 1, y: pad.t, width: slot - 2, height: H - pad.t - pad.b },
-        html: `<div class="tip-h">${fmtDay(Date.parse(x.k + "T00:00:00Z") / 1000)}${d.hours < 23 ? ` · ${d.hours} h de relevés` : ""}</div>` +
+        html: `<div class="tip-h">${fmtDay(Date.parse(x.k + "T00:00:00Z") / 1000)}${d.hours && d.hours < 23 ? ` · ${d.hours} h de relevés` : ""}</div>` +
           (d.hours ? row("var(--t-hot)", "PAC", `${eur(price(d))} € · ${fr(kwh(d), 1)} kWh`) : row("var(--mist)", "PAC", "pas de relevé")) +
           (T.hc && d.hours ? row("var(--t-hot)", "heures pleines", fr(d.hp, 1) + " kWh") + row("var(--t-cool)", "heures creuses", fr(d.hc, 1) + " kWh") : "") +
           (he != null ? row("var(--mist)", meter(d) ? "maison (compteur)" : "maison ≈", `${eur(he)} € · ${fr(houseKwh(d), 1)} kWh`) +
             (houseKwh(d) > 0 && d.hours >= (meter(d) ? d.gridQ / 4 : d.houseHours) - 1 ? row("var(--mist)", "part PAC", fr((100 * kwh(d)) / houseKwh(d), 0) + " %") : "") : "") +
           (meter(d) && d.peak != null ? row("var(--frost)", "pic 15 min", fr(d.peak, 1) + " kW" + (T.pref ? ` · Pref ${fr(T.pref, 0)}` : "")) : "") +
-          (meter(d) ? (d.sharedQ ? row("var(--t-cool)", "communauté", `${fr(d.shared, 1)} kWh · ${fr((100 * d.shared) / d.grid, 0)} %`) : row("var(--mist)", "communauté", "pas encore publié")) : "") +
+          (meter(d) ? (d.sharedQ ? row("var(--t-cool)", "communauté", `${fr(d.shared, 1)} kWh · ${fr((100 * d.shared) / houseKwh(d), 0)} %`) +
+            (T.shared ? row("var(--t-cool)", d.gain >= 0 ? "économie partage" : "surcoût partage", `${eur(Math.abs(d.gain))} €`) : "")
+            : row("var(--mist)", "communauté", "pas encore publié")) : "") +
           (overEur(d) > 0 ? row("var(--t-hot)", "dépassement", `${fr(d.over, 2)} kWh · ${eur(overEur(d))} €`) : "") +
           (d.gridQ && !meter(d) ? row("var(--mist)", "compteur", `${fr(d.gridQ / 4, 1)} h publiées sur 24`) : "") };
     });

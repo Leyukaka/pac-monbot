@@ -74,6 +74,10 @@ The cost board uses the NIBE energy log (heat pump consumption per hour, backup 
 | `HC_HOURS` | Off-peak local hours, e.g. `22-6` or `23:30-7:30,12-14` (half-hour precision) |
 | `MONTHLY_FEE` | Optional fixed monthly fee incl. VAT (subscription, network capacity, metering), added to the month projection |
 | `SHARED_KWH` | Optional all-in price per kWh covered by an energy community (Luxembourg, via Leneda) |
+| `ENERGY_BANDS` | Line-by-line mode, takes precedence over `PRICE_KWH`: supplier energy price excl. VAT per local hour band, e.g. `wd:0-6=0.09213,6-17=0.13213,17-24=0.14213;we:...` (`wd` Monday to Friday, `we` weekend, `all` every day) |
+| `TAX_KWH`, `COMPENSATION_KWH` | Line-by-line mode: per-kWh taxes on the kWh bought from the supplier (the compensation can be negative) |
+| `NETWORK_KWH`, `VAT` | Line-by-line mode: network charge on all consumption (shared kWh included), and the VAT rate (e.g. `0.08`) |
+| `SHARED_ENERGY_KWH`, `SHARED_VAT` | Line-by-line mode: price per kWh billed by the energy community, and its VAT rate; the network charge is added on top |
 | `TIMEZONE` | Time zone for days and off-peak hours (default `Europe/Paris`) |
 
 Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed fees; set `MONTHLY_FEE` to include them in the month projection. Example for Luxembourg (Enovos + Creos, 2026): (energy 0.1321 + Creos network 0.0510 + electricity tax 0.0010 - compensation 0.0010) × 1.08 VAT ≈ 0.1978 €/kWh, `TIMEZONE=Europe/Luxembourg`, no off-peak hours. Creos capacity overrun charges are computed when Leneda data is available (see below).

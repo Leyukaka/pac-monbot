@@ -19,4 +19,8 @@
   // then set your team name and the app's AUD tag so the Worker verifies the Access token itself.
   // "vars": { "ACCESS_TEAM": "your-team", "ACCESS_AUD": "your-app-aud-tag",
   //           "PRICE_KWH": "0.1952", "PRICE_HC": "0.1635", "HC_HOURS": "22-6", "TIMEZONE": "Europe/Paris", "MONTHLY_FEE": "" }
+  // Line-by-line tariff instead (prices excl. VAT), e.g. Luxembourg 2026:
+  //   "ENERGY_BANDS": "wd:0-6=0.09213,6-17=0.13213,17-24=0.14213;we:0-6=0.09213,6-12=0.13213,12-17=0.09213,17-24=0.14213",
+  //   "TAX_KWH": "0.001", "COMPENSATION_KWH": "-0.0371", "NETWORK_KWH": "0.051", "VAT": "0.08",
+  //   "SHARED_ENERGY_KWH": "0.105", "SHARED_VAT": "0", "PREF_KW": "7"
 }

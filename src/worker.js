@@ -368,22 +368,62 @@ async function series(env, q, house) {
 
 // ---------- coût de l'électricité (privé) ----------
 // PAC : moyenne horaire des compteurs NIBE « consommé, heure passée » (kWh), appoint compris.
-// Maison : 3 phases (A) × 230 V, estimation en puissance apparente (pas de cos φ).
-// Tarif : PRICE_KWH (TTC, base ou heures pleines), PRICE_HC + HC_HOURS ("22-6", "23:30-7:30,12-14"),
-// MONTHLY_FEE (abonnement TTC par mois, optionnel), TIMEZONE ; Leneda : PREF_KW (puissance de référence)
-// et OVERRUN_KWH (prix TTC du kWh au-delà de Pref, par quart d'heure) ; SHARED_KWH : prix TTC du kWh fourni par la
-// communauté énergétique (énergie de la communauté + réseau + taxes), à la place de PRICE_KWH pour cette part.
+// Maison : compteur Smarty (Leneda, quarts d'heure) si la journée est complète, sinon 3 phases × 230 V (estimation).
+//
+// Deux façons de décrire le tarif :
+// 1. Simple : PRICE_KWH (TTC), PRICE_HC + HC_HOURS ("22-6", "23:30-7:30,12-14"), SHARED_KWH (TTC du kWh partagé).
+// 2. Ligne à ligne comme une facture (prioritaire si ENERGY_BANDS est posé), tous les prix HT :
+//    ENERGY_BANDS "wd:0-6=0.09213,6-17=0.13213,17-24=0.14213;we:0-6=0.09213,6-12=0.13213,12-17=0.09213,17-24=0.14213"
+//      (wd = lundi-vendredi, we = samedi-dimanche, all = tous les jours ; heures locales entières, 24 h couvertes)
+//    TAX_KWH, COMPENSATION_KWH (peut être négatif) : sur les kWh du fournisseur seulement ;
+//    NETWORK_KWH : sur toute la consommation (partage compris) ; VAT (0.08) ;
+//    SHARED_ENERGY_KWH + SHARED_VAT : prix du kWh facturé par la communauté énergétique (le réseau s'y ajoute).
+// Communs : MONTHLY_FEE (TTC par mois), PREF_KW + OVERRUN_KWH (TTC du kWh au-delà de Pref par quart d'heure), TIMEZONE.
 const USE = ["32495", "32496", "32499", "32500"];
 const VOLT = 230;
+
+function parseBands(s) {
+  if (!s) return null;
+  const out = {};
+  for (const part of String(s).split(";")) {
+    const m = part.trim().match(/^(wd|we|all)\s*:\s*(.+)$/i);
+    if (!m) return null;
+    const list = m[2].split(",").map((x) => x.trim().match(/^(\d{1,2})\s*-\s*(\d{1,2})\s*=\s*(-?\d+(?:[.,]\d+)?)$/))
+      .map((x) => (x ? [Number(x[1]), Number(x[2]), Number(x[3].replace(",", "."))] : null));
+    if (list.some((x) => !x || x[0] >= x[1] || x[1] > 24)) return null;
+    for (let h = 0; h < 24; h++) if (!list.some(([a, b]) => h >= a && h < b)) return null; // 24 h couvertes
+    out[m[1].toLowerCase()] = list;
+  }
+  if (!out.all && !(out.wd && out.we)) return null;
+  return out;
+}
+const bandPrice = (B, we, h) => (B[we ? "we" : "wd"] || B.all).find(([a, b]) => h >= a && h < b)[2];
+
 function tariff(env) {
-  const num = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n > 0 ? n : null; };
-  const hc = num(env.PRICE_HC), hcHours = String(env.HC_HOURS || "22-6");
+  const num = (v, neg = false) => { const s = String(v ?? "").trim(); if (!s) return null; const n = Number(s.replace(",", ".")); return Number.isFinite(n) && (neg || n > 0) ? n : null; };
+  const common = { tz: env.TIMEZONE || "Europe/Paris", monthly: num(env.MONTHLY_FEE), pref: num(env.PREF_KW), overrun: num(env.OVERRUN_KWH) };
+  const B = parseBands(env.ENERGY_BANDS);
+  if (B) {
+    const vat = num(env.VAT, true) ?? 0, net = num(env.NETWORK_KWH, true) ?? 0, tax = num(env.TAX_KWH, true) ?? 0, comp = num(env.COMPENSATION_KWH, true) ?? 0;
+    const se = num(env.SHARED_ENERGY_KWH, true), sv = num(env.SHARED_VAT, true) ?? 0;
+    const prices = Object.values(B).flat().map((x) => x[2]);
+    return { ...common, mode: "bands", B, vat, net, tax, comp, se, sv,
+      supplier: (we, h) => (bandPrice(B, we, h) + tax + comp + net) * (1 + vat),
+      shared: se != null ? se * (1 + sv) + net * (1 + vat) : null,
+      label: `fournisseur ${fr4(Math.min(...prices))} à ${fr4(Math.max(...prices))} €/kWh HT selon l'heure · réseau ${fr4(net)} · ` +
+        `compensation ${fr4(comp)} · TVA ${Math.round(vat * 100)} %` + (se != null ? ` · partagé ${fr4(se)} + réseau` : "") };
+  }
+  const base = num(env.PRICE_KWH) ?? 0.1952, hc = num(env.PRICE_HC), hcHours = String(env.HC_HOURS || "22-6");
   const ranges = hc ? hcHours.split(",").map((r) => r.split("-").map((x) => { if (!/^\s*\d{1,2}(:\d{2})?\s*$/.test(x)) return NaN; const [h, m] = x.trim().split(":").map(Number); return h * 60 + (m || 0); }))
     .filter((r) => r.length === 2 && r.every((v) => Number.isFinite(v) && v >= 0 && v <= 1440)) : [];
-  return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges, monthly: num(env.MONTHLY_FEE),
-    pref: num(env.PREF_KW), overrun: num(env.OVERRUN_KWH), shared: num(env.SHARED_KWH) };
+  const isHC = (min) => ranges.some((r) => inRange(((min % 1440) + 1440) % 1440, r));
+  const sharedK = num(env.SHARED_KWH);
+  return { ...common, mode: "simple", base, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges,
+    supplier: (_we, _h, min) => (ranges.length && isHC(min) ? hc : base), shared: sharedK,
+    label: (ranges.length ? `HP ${fr4(base)} · HC ${fr4(hc)} €/kWh (${hcHours})` : `${fr4(base)} €/kWh`) + (sharedK ? ` · partagé ${fr4(sharedK)} €/kWh` : "") };
 }
 const inRange = (m, [a, b]) => (a <= b ? m >= a && m < b : m >= a || m < b);
+const fr4 = (v) => String(Math.round(v * 1e5) / 1e5).replace(".", ",");
 
 // Le calcul lit ~16 000 lignes : résultat gardé en base une heure (clé = tarif), recalculé à la demande.
 async function cost(env) {
@@ -396,15 +436,38 @@ async function cost(env) {
 }
 
 async function costCompute(env, T) {
-  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: T.tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: T.tz, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   const lc = new Map();
   const local = (ts) => {
     let l = lc.get(ts); if (l) return l;
     const p = Object.fromEntries(fmt.formatToParts(new Date(ts * 1000)).map((x) => [x.type, x.value]));
-    l = { day: `${p.year}-${p.month}-${p.day}`, min: Number(p.hour) * 60 + Number(p.minute) }; lc.set(ts, l); return l;
+    const h = Number(p.hour);
+    l = { day: `${p.year}-${p.month}-${p.day}`, h, min: h * 60 + Number(p.minute), we: p.weekday === "Sat" || p.weekday === "Sun" };
+    lc.set(ts, l); return l;
   };
-  const pids = [...USE, ...HOUSE];
   const since = Math.floor((nowS() - 62 * 86400) / 3600) * 3600;
+  const days = new Map();
+  const day = (k) => { let d = days.get(k); if (!d) days.set(k, (d = { d: k, pacKwh: 0, pacEur: 0, hp: 0, hc: 0, hours: 0, house: 0, houseHours: 0, houseEst: 0,
+    grid: 0, gridQ: 0, meterEur: 0, shared: 0, sharedQ: 0, gain: 0, peak: 0, over: 0 })); return d; };
+
+  // 1. Compteur (Leneda) : chaque quart d'heure au prix de sa tranche ; part partagée au prix de la communauté.
+  //    Table absente (migration pas encore appliquée) : pas de données compteur, le reste fonctionne.
+  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw, sh FROM grid WHERE ts >= ?").bind(since).all().catch(() => ({ results: [] }))).results : [];
+  const byHour = new Map();
+  for (const q of grid) {
+    const hts = Math.floor(q.ts / 3600) * 3600, l = local(hts), d = day(l.day);
+    const S = T.supplier(l.we, l.h, l.min + (q.ts - hts) / 60 + 7);
+    const g = q.kw * 0.25, x = q.sh != null ? Math.min(q.sh, q.kw) * 0.25 : null, Sh = T.shared ?? S;
+    const eur = x != null ? (g - x) * S + x * Sh : g * S;
+    d.grid += g; d.gridQ++; d.meterEur += eur; d.peak = Math.max(d.peak, q.kw);
+    if (T.pref) d.over += Math.max(0, q.kw - T.pref) * 0.25;
+    if (x != null) { d.shared += x; d.sharedQ++; d.gain += x * (S - Sh); }
+    let m = byHour.get(hts); if (!m) byHour.set(hts, (m = { kwh: 0, eur: 0, q: 0 }));
+    m.kwh += g; m.eur += eur; m.q++;
+  }
+
+  // 2. PAC et estimation maison, heure par heure.
+  const pids = [...USE, ...HOUSE];
   const rows = (await env.DB.prepare(`SELECT ts, pid, a FROM readings_h WHERE ts >= ? AND pid IN (${pids.map(() => "?").join(",")})`)
     .bind(since, ...pids).all()).results;
   const hours = new Map();
@@ -414,34 +477,32 @@ async function costCompute(env, T) {
     // Heure en cours : comptée au prorata du temps écoulé, sinon elle pèserait une heure pleine.
     if (HOUSE.has(r.pid)) { h.amps += r.a; h.ph++; h.w = Math.min(1, Math.max(0, nowS() - r.ts) / 3600); } else h.pac = (h.pac ?? 0) + r.a;
   }
-  const days = new Map();
-  for (const ts of [...hours.keys()].sort((a, b) => a - b)) {
-    const h = hours.get(ts), { day, min } = local(ts);
-    let d = days.get(day);
-    if (!d) days.set(day, (d = { d: day, hp: 0, hc: 0, hours: 0, house: 0, houseHours: 0 }));
-    // Part en heures creuses, sondée à :15 et :45 (tranches d'une demi-heure).
-    const f = T.hc ? [15, 45].filter((m) => T.ranges.some((r) => inRange((min + m) % 1440, r))).length / 2 : 0;
-    if (h.pac != null) { d.hp += h.pac * (1 - f); d.hc += h.pac * f; d.hours++; }
-    if (h.ph === 3) { d.house += (h.amps * VOLT * h.w) / 1000; d.houseHours += h.w; }
+  for (const [ts, h] of hours) {
+    const l = local(ts), d = day(l.day);
+    const S = (T.supplier(l.we, l.h, l.min + 15) + T.supplier(l.we, l.h, l.min + 45)) / 2;
+    if (h.pac != null) {
+      // Heure complète au compteur : la PAC paie le même mélange (tranche, partage) que la maison sur cette heure.
+      const m = byHour.get(ts), p = m && m.q === 4 && m.kwh > 0 ? m.eur / m.kwh : S;
+      d.pacKwh += h.pac; d.pacEur += h.pac * p; d.hours++;
+      const f = T.mode === "simple" && T.hc ? [15, 45].filter((mm) => T.supplier(l.we, l.h, l.min + mm) === T.hc).length / 2 : 0;
+      d.hp += h.pac * (1 - f); d.hc += h.pac * f;
+    }
+    if (h.ph === 3) { const k = (h.amps * VOLT * h.w) / 1000; d.house += k; d.houseHours += h.w; d.houseEst += k * S; }
   }
-  // Compteur (Leneda) : kWh = kW moyen × 0,25 h ; dépassement = part au-delà de Pref, quart d'heure par quart d'heure.
-  // Table absente (migration 0003 pas encore appliquée) : pas de données compteur, le reste fonctionne.
-  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw, sh FROM grid WHERE ts >= ?").bind(since).all().catch(() => ({ results: [] }))).results : [];
-  for (const q of grid) {
-    const l = local(Math.floor(q.ts / 3600) * 3600);
-    let d = days.get(l.day);
-    if (!d) days.set(l.day, (d = { d: l.day, hp: 0, hc: 0, hours: 0, house: 0, houseHours: 0 }));
-    d.grid = (d.grid ?? 0) + q.kw * 0.25; d.gridQ = (d.gridQ ?? 0) + 1;
-    d.peak = Math.max(d.peak ?? 0, q.kw);
-    if (T.pref) d.over = (d.over ?? 0) + Math.max(0, q.kw - T.pref) * 0.25;
-    if (q.sh != null) { d.shared = (d.shared ?? 0) + q.sh * 0.25; d.sharedQ = (d.sharedQ ?? 0) + 1; }
-  }
+
   const r3 = (v) => Math.round(v * 1000) / 1000;
   return {
-    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz, monthly: T.monthly, pref: T.pref, overrun: T.overrun, shared: T.shared },
+    tariff: { mode: T.mode, label: T.label, tz: T.tz, monthly: T.monthly, pref: T.pref, overrun: T.overrun, shared: T.shared, hc: T.mode === "simple" ? T.hc : null },
     today: local(nowS()).day,
-    days: [...days.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house), houseHours: r3(d.houseHours),
-      ...(d.gridQ ? { grid: r3(d.grid), over: r3(d.over ?? 0), peak: r3(d.peak) } : {}), ...(d.sharedQ ? { shared: r3(d.shared) } : {}) })),
+    days: [...days.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((d) => {
+      const meter = d.gridQ >= 92, overEur = d.over * (T.overrun ?? 0);
+      return { d: d.d, hours: d.hours, pacKwh: r3(d.pacKwh), pacEur: r3(d.pacEur), hp: r3(d.hp), hc: r3(d.hc),
+        meter, houseHours: r3(d.houseHours), gridQ: d.gridQ,
+        houseKwh: meter ? r3(d.grid) : d.houseHours ? r3(d.house) : null,
+        houseEur: meter ? r3(d.meterEur + overEur) : d.houseHours ? r3(d.houseEst) : null,
+        ...(d.gridQ ? { peak: r3(d.peak), over: r3(d.over), overEur: r3(meter ? overEur : 0) } : {}),
+        ...(d.sharedQ ? { shared: r3(d.shared), sharedQ: d.sharedQ, gain: r3(d.gain) } : {}) };
+    }),
   };
 }
 
