@@ -95,6 +95,8 @@ const ASSETS = {
     const p = decodeURIComponent(new URL(req.url).pathname);
     let file = normalize(join(SITE, p.endsWith("/") ? p + "index.html" : p));
     if (!file.startsWith(SITE + sep) || p.includes("_headers")) return new Response("not found", { status: 404 });
+    // Comme Cloudflare : /analyse sert analyse.html.
+    if (!existsSync(file) && existsSync(file + ".html")) file += ".html";
     if (!existsSync(file) || !statSync(file).isFile()) return new Response("not found", { status: 404 });
     const headers = new Headers({ "content-type": TYPES[extname(file)] || "application/octet-stream" });
     for (const r of RULES) if (r.re.test(p)) for (const [k, v] of r.h) headers.set(k, v);

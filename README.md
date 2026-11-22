@@ -11,6 +11,7 @@ It shows:
 - electrical power, heat produced, COP and a 14-day energy balance from the NIBE energy log;
 - charts with a draggable time brush (6 h, 24 h, 7 d, 30 d, all), plus a 30-day outdoor temperature band.
 - hover any chart to read the exact values under the cursor;
+- in the private area only: an **Analysis** tab (`/prive/analyse`): cost and kWh per tariff band for the house and the heat pump, average hourly profile (weekday / weekend), energy sharing gain or loss per band, 15-minute peak histogram against the reference power, monthly table, and what-if simulations (shifting load out of peak hours, reference power);
 - in the private area only: an electricity cost board (today, yesterday, 7 days, month to date with an end-of-month projection, 30-day bars split peak / off-peak, whole-house estimate).
 
 | Schematic while running (`?demo=64`) | Phone, defrost (`?demo=defrost`) |
@@ -137,6 +138,7 @@ There is **no built-in login**, and the server listens on `127.0.0.1` only. To r
 | `/api/now` | Latest values, 7-day counters, active alarms (severity and title), collector status |
 | `/api/series?range=24h\|7d\|30d\|30dd\|365d\|all&pids=…`, or `from=&to=` (UTC seconds) | Aggregated series, about 400 points per series at most, 12 series at most |
 | `/prive/api/cost` | Private: kWh per local day (peak / off-peak, house estimate) and the tariff, last 62 days |
+| `/prive/api/analysis` | Private: per-band totals, hourly profiles, peaks histogram, monthly table, last 62 days |
 | `/api/health` | Last 12 collections, myUplink history-route probe |
 
 ## Security

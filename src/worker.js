@@ -76,7 +76,7 @@ export default {
 
     const house = priv || env.SHOW_HOUSE === "1";
     // /api/cost : coût de l'électricité, seulement dans l'espace privé (ou SHOW_HOUSE=1).
-    const route = { "/api/now": now, "/api/series": series, "/api/health": health, ...(house ? { "/api/cost": cost } : {}) }[path];
+    const route = { "/api/now": now, "/api/series": series, "/api/health": health, ...(house ? { "/api/cost": cost, "/api/analysis": analysis } : {}) }[path];
     if (!route) return json({ error: "inconnu" }, 404);
 
     // Cache 60 s sur une clé normalisée (fenêtres arrondies), pour absorber les rafraîchissements.
@@ -90,7 +90,7 @@ export default {
     let res;
     try {
       // Le coût ne bouge qu'une fois par heure : 10 min de cache (lecture de ~10 000 lignes horaires).
-      res = json(await route(env, url.searchParams, house), 200, route === cost ? 600 : CACHE_S);
+      res = json(await route(env, url.searchParams, house), 200, route === cost || route === analysis ? 600 : CACHE_S);
     } catch (e) {
       console.error("api", url.pathname, e && e.stack || e);
       return json({ error: "erreur interne" }, 500);
@@ -253,7 +253,7 @@ async function ingestGrid(req, env) {
     && (r[2] == null || (typeof r[2] === "number" && Number.isFinite(r[2]) && r[2] >= 0 && r[2] <= r[1] + 0.01)))
     .map((r) => [r[0], r[1], r[2] ?? null]);
   // Nouvelles données compteur : le coût mis en cache est recalculé à la prochaine demande.
-  const stmts = [kvPut(env, "leneda_status", JSON.stringify({ ts: now, status: 200, n: rows.length, via: "push" })), env.DB.prepare("DELETE FROM kv WHERE k = 'cost_cache'")];
+  const stmts = [kvPut(env, "leneda_status", JSON.stringify({ ts: now, status: 200, n: rows.length, via: "push" })), env.DB.prepare("DELETE FROM kv WHERE k IN ('cost_cache', 'analysis_cache')")];
   if (rows.length) stmts.unshift(env.DB.prepare(
     "INSERT INTO grid (ts, kw, sh) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]') FROM json_each(?) WHERE true " +
     "ON CONFLICT(ts) DO UPDATE SET kw = excluded.kw, sh = COALESCE(excluded.sh, grid.sh)").bind(JSON.stringify(rows)));
@@ -503,6 +503,89 @@ async function costCompute(env, T) {
         ...(d.gridQ ? { peak: r3(d.peak), over: r3(d.over), overEur: r3(meter ? overEur : 0) } : {}),
         ...(d.sharedQ ? { shared: r3(d.shared), sharedQ: d.sharedQ, gain: r3(d.gain) } : {}) };
     }),
+  };
+}
+
+// ---------- analyse (privé) : tranches, profils horaires, partage, pics ----------
+// Maison = quarts d'heure du compteur (Leneda) ; PAC = heures NIBE. Tranche d'une heure locale :
+// mode ligne à ligne : prix min = « creuse », max = « pointe », le reste = « base » ; mode simple : HC = creuse, sinon base.
+async function analysis(env) {
+  const T = tariff(env), key = "a:" + JSON.stringify(T);
+  const c = JSON.parse(await kvGet(env, "analysis_cache", "null"));
+  if (c && c.key === key && c.ts > nowS() - 3600) return c.data;
+  const data = await analysisCompute(env, T);
+  await kvPut(env, "analysis_cache", JSON.stringify({ ts: nowS(), key, data })).run();
+  return data;
+}
+
+async function analysisCompute(env, T) {
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: T.tz, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" });
+  const lc = new Map();
+  const local = (ts) => {
+    let l = lc.get(ts); if (l) return l;
+    const p = Object.fromEntries(fmt.formatToParts(new Date(ts * 1000)).map((x) => [x.type, x.value]));
+    l = { day: `${p.year}-${p.month}-${p.day}`, m: `${p.year}-${p.month}`, h: Number(p.hour), we: p.weekday === "Sat" || p.weekday === "Sun" };
+    lc.set(ts, l); return l;
+  };
+  // Prix tout compris du kWh fournisseur pour une heure, et sa tranche.
+  let lo = Infinity, hi = -Infinity;
+  for (const we of [false, true]) for (let h = 0; h < 24; h++) { const s = T.supplier(we, h, h * 60 + 30); lo = Math.min(lo, s); hi = Math.max(hi, s); }
+  const bandOf = (we, h) => { const s = T.supplier(we, h, h * 60 + 30); return hi - lo < 1e-9 ? "base" : Math.abs(s - lo) < 1e-9 ? "creuse" : Math.abs(s - hi) < 1e-9 ? "pointe" : "base"; };
+  const bandPriceAvg = {};
+  for (const we of [false, true]) for (let h = 0; h < 24; h++) { const b = bandOf(we, h); (bandPriceAvg[b] ||= new Set()).add(Math.round(T.supplier(we, h, h * 60 + 30) * 1e5) / 1e5); }
+  const schedule = { wd: [...Array(24)].map((_, h) => bandOf(false, h)), we: [...Array(24)].map((_, h) => bandOf(true, h)) };
+
+  const since = Math.floor((nowS() - 62 * 86400) / 3600) * 3600;
+  const z = () => ({ creuse: { kwh: 0, eur: 0 }, base: { kwh: 0, eur: 0 }, pointe: { kwh: 0, eur: 0 } });
+  const bands = { house: z(), pac: z(), shared: z() };
+  const prof = { wd: { house: Array(24).fill(0), pac: Array(24).fill(0), hd: new Set(), pd: new Set() }, we: { house: Array(24).fill(0), pac: Array(24).fill(0), hd: new Set(), pd: new Set() } };
+  const months = new Map();
+  const mo = (m) => { let x = months.get(m); if (!x) months.set(m, (x = { m, houseKwh: 0, houseEur: 0, shared: 0, gain: 0, pacKwh: 0, pacEur: 0, peak: 0, over: 0, q: 0 })); return x; };
+  const hist = new Map();
+  const byHour = new Map();
+
+  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw, sh FROM grid WHERE ts >= ? ORDER BY ts").bind(since).all().catch(() => ({ results: [] }))).results : [];
+  for (const q of grid) {
+    const hts = Math.floor(q.ts / 3600) * 3600, l = local(hts), b = bandOf(l.we, l.h);
+    const S = T.supplier(l.we, l.h, l.h * 60 + 30), Sh = T.shared ?? S;
+    const g = q.kw * 0.25, x = q.sh != null ? Math.min(q.sh, q.kw) * 0.25 : null;
+    const eur = x != null ? (g - x) * S + x * Sh : g * S;
+    bands.house[b].kwh += g; bands.house[b].eur += eur;
+    if (x != null) { bands.shared[b].kwh += x; bands.shared[b].eur += x * (S - Sh); }
+    const P = prof[l.we ? "we" : "wd"]; P.house[l.h] += g; P.hd.add(l.day);
+    const M = mo(l.m); M.houseKwh += g; M.houseEur += eur; M.q++; M.peak = Math.max(M.peak, q.kw);
+    if (x != null) { M.shared += x; M.gain += x * (S - Sh); }
+    if (T.pref) M.over += Math.max(0, q.kw - T.pref) * 0.25;
+    const k = Math.min(15, Math.floor(q.kw)); hist.set(k, (hist.get(k) ?? 0) + 1);
+    let m = byHour.get(hts); if (!m) byHour.set(hts, (m = { kwh: 0, eur: 0, q: 0 })); m.kwh += g; m.eur += eur; m.q++;
+  }
+
+  const rows = (await env.DB.prepare(`SELECT ts, pid, a FROM readings_h WHERE ts >= ? AND pid IN (${USE.map(() => "?").join(",")})`).bind(since, ...USE).all()).results;
+  const pac = new Map();
+  for (const r of rows) pac.set(r.ts, (pac.get(r.ts) ?? 0) + r.a);
+  let pacFrom = null;
+  for (const [ts, k] of pac) {
+    const l = local(ts), b = bandOf(l.we, l.h), m = byHour.get(ts);
+    const p = m && m.q === 4 && m.kwh > 0 ? m.eur / m.kwh : T.supplier(l.we, l.h, l.h * 60 + 30);
+    bands.pac[b].kwh += k; bands.pac[b].eur += k * p;
+    const P = prof[l.we ? "we" : "wd"]; P.pac[l.h] += k; P.pd.add(l.day);
+    const M = mo(l.m); M.pacKwh += k; M.pacEur += k * p;
+    pacFrom = pacFrom == null ? ts : Math.min(pacFrom, ts);
+  }
+
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  const rb = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { kwh: r3(v.kwh), eur: r3(v.eur) }]));
+  const avg = (arr, n) => arr.map((v) => r3(n ? v / n : 0));
+  return {
+    tariff: { mode: T.mode, label: T.label, pref: T.pref, overrun: T.overrun, shared: T.shared, monthly: T.monthly,
+      prices: Object.fromEntries(Object.entries(bandPriceAvg).map(([k, s]) => [k, [...s].sort()])) },
+    schedule,
+    meterFrom: grid.length ? grid[0].ts : null, meterTo: grid.length ? grid[grid.length - 1].ts : null, pacFrom,
+    bands: { house: rb(bands.house), pac: rb(bands.pac), shared: rb(bands.shared) },
+    profile: Object.fromEntries(["wd", "we"].map((k) => [k, { house: avg(prof[k].house, prof[k].hd.size), pac: avg(prof[k].pac, prof[k].pd.size), houseDays: prof[k].hd.size, pacDays: prof[k].pd.size }])),
+    peaks: [...hist].sort((a, b) => a[0] - b[0]).map(([kw, q]) => ({ kw, q })),
+    months: [...months.values()].sort((a, b) => (a.m < b.m ? -1 : 1)).map((m) => ({ m: m.m, houseKwh: r3(m.houseKwh), houseEur: r3(m.houseEur),
+      shared: r3(m.shared), gain: r3(m.gain), pacKwh: r3(m.pacKwh), pacEur: r3(m.pacEur), peak: r3(m.peak), over: r3(m.over), days: r3(m.q / 96) })),
   };
 }
 

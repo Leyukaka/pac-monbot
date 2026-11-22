@@ -547,6 +547,7 @@
       if (demo === "defrost") { put(ID.hz, 50); put(ID.defrost, 1); put(ID.gp12, 60); }
       else { put(ID.hz, Number(demo) || 64); put(ID.defrost, 0); put(ID.gp12, 75); put(ID.gp1, 90); }
     }
+    $("views").hidden = !NOW.house; // onglet Analyse : espace privé seulement
     renderNow();
     await loadOverview();
     drawBrush();

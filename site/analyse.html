@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PAC Monbot · Analyse</title>
+<meta name="description" content="Analyse privée de la consommation et du coût de l'électricité : tranches horaires, profils, partage, pics.">
+<meta name="theme-color" content="#0A111F">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand"><span class="word">PAC<span>/</span>Monbot</span></div>
+    <nav class="views" aria-label="Vues"><a href="./">Tableau</a><a href="./analyse" aria-current="page">Analyse</a></nav>
+    <span class="pill num" id="a-range">-</span>
+  </header>
+
+  <div class="wait" id="a-wait">Chargement de l'analyse…</div>
+
+  <section aria-label="Tarif" class="a-sec">
+    <div class="sec-h"><h2>Tarif appliqué</h2><span class="label" id="a-tariff">-</span></div>
+    <div class="a-prices num" id="a-prices"></div>
+  </section>
+
+  <section aria-label="Tranches" class="a-sec">
+    <div class="sec-h"><h2>Où part l'argent</h2><span class="label">répartition par tranche horaire, données compteur et PAC</span></div>
+    <div class="panel wide">
+      <div class="meta"><h3>Maison · compteur Smarty</h3><span class="label" id="a-house-tot">-</span></div>
+      <div class="bandbar" id="a-house-kwh"></div><div class="bandbar" id="a-house-eur"></div>
+      <div class="a-grid num" id="a-house-cells"></div>
+    </div>
+    <div class="panel wide">
+      <div class="meta"><h3>PAC · journal d'énergie NIBE</h3><span class="label" id="a-pac-tot">-</span></div>
+      <div class="bandbar" id="a-pac-kwh"></div><div class="bandbar" id="a-pac-eur"></div>
+      <div class="a-grid num" id="a-pac-cells"></div>
+    </div>
+  </section>
+
+  <section aria-label="Profil horaire" class="a-sec">
+    <div class="sec-h"><h2>Profil horaire moyen</h2>
+      <div class="tabs" role="group" aria-label="Jours"><button data-k="wd" aria-pressed="true">Semaine</button><button data-k="we" aria-pressed="false">Week-end</button></div></div>
+    <div class="panel wide">
+      <div class="meta"><h3>kWh moyens par heure locale</h3>
+        <div class="legend"><span><i style="background:var(--mist)"></i>maison</span><span><i style="background:var(--t-hot)"></i>PAC</span>
+          <span><i class="b-creuse"></i>creuse</span><span><i class="b-base"></i>base</span><span><i class="b-pointe"></i>pointe</span></div></div>
+      <svg id="a-profile" viewBox="0 0 1000 260" role="img" aria-label="Profil horaire moyen de consommation"></svg>
+      <p class="why" id="a-profile-why"></p>
+    </div>
+  </section>
+
+  <section aria-label="Partage" class="a-sec">
+    <div class="sec-h"><h2>Partage d'énergie</h2><span class="label">communauté énergétique contre fournisseur, au même quart d'heure</span></div>
+    <div class="panel wide">
+      <div class="a-grid num" id="a-share-cells"></div>
+      <p class="why" id="a-share-why"></p>
+    </div>
+  </section>
+
+  <section aria-label="Pics" class="a-sec">
+    <div class="sec-h"><h2>Pics de puissance</h2><span class="label">quarts d'heure par palier de kW</span></div>
+    <div class="panel wide">
+      <svg id="a-peaks" viewBox="0 0 1000 220" role="img" aria-label="Répartition des quarts d'heure par puissance"></svg>
+      <p class="why" id="a-peaks-why"></p>
+    </div>
+  </section>
+
+  <section aria-label="Mois" class="a-sec">
+    <div class="sec-h"><h2>Par mois</h2><span class="label">variable seulement, hors part fixe</span></div>
+    <div class="panel wide a-scroll"><table class="a-table num" id="a-months"></table></div>
+  </section>
+
+  <section aria-label="Théorie" class="a-sec">
+    <div class="sec-h"><h2>Théorie</h2><span class="label">simulations à partir de tes données, hypothèses explicites</span></div>
+    <div class="panel wide">
+      <div class="meta"><h3>Décaler de la consommation hors pointe</h3><span class="label num" id="a-sim-v">-</span></div>
+      <input type="range" id="a-sim" min="0" max="10" step="0.5" value="2" aria-label="kWh décalés par jour">
+      <p class="why" id="a-sim-why"></p>
+    </div>
+    <div class="panel wide">
+      <div class="meta"><h3>Eau chaude de la PAC la nuit</h3></div>
+      <p class="why" id="a-ecs-why"></p>
+    </div>
+    <div class="panel wide">
+      <div class="meta"><h3>Puissance de référence</h3></div>
+      <p class="why" id="a-pref-why"></p>
+    </div>
+    <div class="panel wide">
+      <div class="meta"><h3>Méthode</h3></div>
+      <ul class="why a-method">
+        <li>Maison : quarts d'heure du compteur Smarty publiés par Leneda (kW moyen × 0,25 h), poussés chaque heure depuis le Luxembourg.</li>
+        <li>PAC : compteurs NIBE « consommé, heure passée » (compresseur et appoint), moyenne horaire.</li>
+        <li>Prix d'un quart d'heure : tranche horaire locale (semaine / week-end), plus compensation et taxe sur la part fournisseur, réseau sur le total, TVA.</li>
+        <li>Part partagée : prix de la communauté, sans TVA, plus le réseau. Publiée par Leneda avec environ un mois de retard.</li>
+        <li>PAC au même prix moyen que la maison sur l'heure : le compteur ne sait pas quel appareil consomme.</li>
+        <li>Validé sur la facture de septembre 2026 : tranches à 0,001 kWh, 72,88 € variables + 21,66 € fixes = 77,71 €.</li>
+        <li>Jours fériés comptés comme jours de semaine (règle Enovos non publiée).</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span class="label">Données privées · Cloudflare Access</span><a class="label priv-link" href="./">Retour au tableau</a></footer>
+</div>
+<script src="/rapport.js" defer></script>
+</body>
+</html>
