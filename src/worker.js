@@ -232,7 +232,8 @@ async function collectLeneda(env) {
   await status({ status: !last && !n ? "vide" : 200, n });
 }
 
-// POST /api/ingest/grid, Authorization: Bearer INGEST_TOKEN. Corps : { unit: "kW", interval: "PT15M", items: [[ts, kw], ...] }.
+// POST /api/ingest/grid, Authorization: Bearer INGEST_TOKEN. Corps : { unit: "kW", interval: "PT15M", items: [[ts, kw, sh?], ...] }
+// (sh = part couverte par la communauté énergétique, null si pas encore publiée : la valeur déjà connue est gardée).
 // Écriture seule : la route ne renvoie aucune donnée. Jeton comparé en temps constant.
 async function ingestGrid(req, env) {
   if (req.method !== "POST") return json({ error: "méthode non autorisée" }, 405);
@@ -248,12 +249,14 @@ async function ingestGrid(req, env) {
   if (String(j.unit ?? "").toLowerCase() !== "kw" || j.interval !== "PT15M") return json({ error: "unité ou pas de temps inattendus" }, 400);
   const now = nowS();
   const rows = j.items.filter((r) => Array.isArray(r) && Number.isInteger(r[0]) && r[0] % 900 === 0 && r[0] > now - 400 * 86400 && r[0] < now + 3600
-    && typeof r[1] === "number" && Number.isFinite(r[1]) && r[1] >= 0 && r[1] < 1000).map((r) => [r[0], r[1]]);
+    && typeof r[1] === "number" && Number.isFinite(r[1]) && r[1] >= 0 && r[1] < 1000
+    && (r[2] == null || (typeof r[2] === "number" && Number.isFinite(r[2]) && r[2] >= 0 && r[2] <= r[1] + 0.01)))
+    .map((r) => [r[0], r[1], r[2] ?? null]);
   // Nouvelles données compteur : le coût mis en cache est recalculé à la prochaine demande.
   const stmts = [kvPut(env, "leneda_status", JSON.stringify({ ts: now, status: 200, n: rows.length, via: "push" })), env.DB.prepare("DELETE FROM kv WHERE k = 'cost_cache'")];
   if (rows.length) stmts.unshift(env.DB.prepare(
-    "INSERT INTO grid (ts, kw) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?) WHERE true " +
-    "ON CONFLICT(ts) DO UPDATE SET kw = excluded.kw").bind(JSON.stringify(rows)));
+    "INSERT INTO grid (ts, kw, sh) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]') FROM json_each(?) WHERE true " +
+    "ON CONFLICT(ts) DO UPDATE SET kw = excluded.kw, sh = COALESCE(excluded.sh, grid.sh)").bind(JSON.stringify(rows)));
   await env.DB.batch(stmts);
   return json({ ok: true, n: rows.length, rejected: j.items.length - rows.length });
 }
@@ -368,7 +371,8 @@ async function series(env, q, house) {
 // Maison : 3 phases (A) × 230 V, estimation en puissance apparente (pas de cos φ).
 // Tarif : PRICE_KWH (TTC, base ou heures pleines), PRICE_HC + HC_HOURS ("22-6", "23:30-7:30,12-14"),
 // MONTHLY_FEE (abonnement TTC par mois, optionnel), TIMEZONE ; Leneda : PREF_KW (puissance de référence)
-// et OVERRUN_KWH (prix TTC du kWh au-delà de Pref, par quart d'heure).
+// et OVERRUN_KWH (prix TTC du kWh au-delà de Pref, par quart d'heure) ; SHARED_KWH : prix TTC du kWh fourni par la
+// communauté énergétique (énergie de la communauté + réseau + taxes), à la place de PRICE_KWH pour cette part.
 const USE = ["32495", "32496", "32499", "32500"];
 const VOLT = 230;
 function tariff(env) {
@@ -377,7 +381,7 @@ function tariff(env) {
   const ranges = hc ? hcHours.split(",").map((r) => r.split("-").map((x) => { if (!/^\s*\d{1,2}(:\d{2})?\s*$/.test(x)) return NaN; const [h, m] = x.trim().split(":").map(Number); return h * 60 + (m || 0); }))
     .filter((r) => r.length === 2 && r.every((v) => Number.isFinite(v) && v >= 0 && v <= 1440)) : [];
   return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges, monthly: num(env.MONTHLY_FEE),
-    pref: num(env.PREF_KW), overrun: num(env.OVERRUN_KWH) };
+    pref: num(env.PREF_KW), overrun: num(env.OVERRUN_KWH), shared: num(env.SHARED_KWH) };
 }
 const inRange = (m, [a, b]) => (a <= b ? m >= a && m < b : m >= a || m < b);
 
@@ -422,7 +426,7 @@ async function costCompute(env, T) {
   }
   // Compteur (Leneda) : kWh = kW moyen × 0,25 h ; dépassement = part au-delà de Pref, quart d'heure par quart d'heure.
   // Table absente (migration 0003 pas encore appliquée) : pas de données compteur, le reste fonctionne.
-  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw FROM grid WHERE ts >= ?").bind(since).all().catch(() => ({ results: [] }))).results : [];
+  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw, sh FROM grid WHERE ts >= ?").bind(since).all().catch(() => ({ results: [] }))).results : [];
   for (const q of grid) {
     const l = local(Math.floor(q.ts / 3600) * 3600);
     let d = days.get(l.day);
@@ -430,13 +434,14 @@ async function costCompute(env, T) {
     d.grid = (d.grid ?? 0) + q.kw * 0.25; d.gridQ = (d.gridQ ?? 0) + 1;
     d.peak = Math.max(d.peak ?? 0, q.kw);
     if (T.pref) d.over = (d.over ?? 0) + Math.max(0, q.kw - T.pref) * 0.25;
+    if (q.sh != null) { d.shared = (d.shared ?? 0) + q.sh * 0.25; d.sharedQ = (d.sharedQ ?? 0) + 1; }
   }
   const r3 = (v) => Math.round(v * 1000) / 1000;
   return {
-    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz, monthly: T.monthly, pref: T.pref, overrun: T.overrun },
+    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz, monthly: T.monthly, pref: T.pref, overrun: T.overrun, shared: T.shared },
     today: local(nowS()).day,
     days: [...days.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house), houseHours: r3(d.houseHours),
-      ...(d.gridQ ? { grid: r3(d.grid), over: r3(d.over ?? 0), peak: r3(d.peak) } : {}) })),
+      ...(d.gridQ ? { grid: r3(d.grid), over: r3(d.over ?? 0), peak: r3(d.peak) } : {}), ...(d.sharedQ ? { shared: r3(d.shared) } : {}) })),
   };
 }
 

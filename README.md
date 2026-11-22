@@ -73,6 +73,7 @@ The cost board uses the NIBE energy log (heat pump consumption per hour, backup 
 | `PRICE_HC` | Optional off-peak price per kWh |
 | `HC_HOURS` | Off-peak local hours, e.g. `22-6` or `23:30-7:30,12-14` (half-hour precision) |
 | `MONTHLY_FEE` | Optional fixed monthly fee incl. VAT (subscription, network capacity, metering), added to the month projection |
+| `SHARED_KWH` | Optional all-in price per kWh covered by an energy community (Luxembourg, via Leneda) |
 | `TIMEZONE` | Time zone for days and off-peak hours (default `Europe/Paris`) |
 
 Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed fees; set `MONTHLY_FEE` to include them in the month projection. Example for Luxembourg (Enovos + Creos, 2026): (energy 0.1321 + Creos network 0.0510 + electricity tax 0.0010 - compensation 0.0010) × 1.08 VAT ≈ 0.1978 €/kWh, `TIMEZONE=Europe/Luxembourg`, no off-peak hours. Creos capacity overrun charges are computed when Leneda data is available (see below).
@@ -91,6 +92,8 @@ Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed f
 1. Generate a random token and store it as a Worker secret: `npx wrangler secret put INGEST_TOKEN`.
 2. On the Luxembourg machine, create `leneda.env` (git-ignored) with `LENEDA_API_KEY`, `LENEDA_ENERGY_ID`, `LENEDA_POD`, `PUSH_URL=https://<your host>/api/ingest/grid` and the same `INGEST_TOKEN`.
 3. Run `node --env-file=leneda.env server/leneda-push.mjs` every hour (cron, Windows Task Scheduler). The first run loads 62 days; later runs re-read the last 3 days, so a machine that was off catches up.
+
+**Energy communities** (for example WattSwap): the push script also reads the share of your consumption covered by energy sharing (`1-65:1.29.2` local community, `1-65:1.29.4` national community, summed). Leneda publishes it about a month late; the script re-reads it once a day. Set `SHARED_KWH` to the all-in price per shared kWh (community energy price + network + taxes, VAT included): that share is then billed at this price instead of `PRICE_KWH`. Days whose sharing is not published yet are shown as such and billed at `PRICE_KWH`. Disable with `SHARED=0` in `leneda.env`.
 
 `POST /api/ingest/grid` only writes: it checks the token in constant time, accepts at most 10,000 quarter-hours in kW, and returns no data. When `INGEST_TOKEN` is set, the Worker stops calling Leneda itself. If you are lucky enough that Leneda accepts your server, set only the three Leneda secrets and the Worker collects hourly on its own. Either way, a day that is not fully published yet falls back to the phase estimate.
 

@@ -376,17 +376,20 @@
     sec.hidden = false;
     const T = c.tariff, pHC = T.hc ?? T.base;
     const by = new Map(c.days.map((d) => [d.d, d]));
-    const price = (d) => (d ? d.hp * T.base + d.hc * pHC : null);
+    // Communauté énergétique : sur un jour où Leneda a publié le partage, la part couverte est payée SHARED_KWH au lieu
+    // du tarif fournisseur ; la PAC prend le même mélange que la maison (le compteur ne sait pas quel appareil l'a consommée).
+    const shareF = (d) => (T.shared && d && d.sharedQ && d.grid > 0 ? ((d.grid - d.shared) * T.base + d.shared * T.shared) / (d.grid * T.base) : 1);
+    const price = (d) => (d ? (d.hp * T.base + d.hc * pHC) * shareF(d) : null);
     const kwh = (d) => (d ? d.hp + d.hc : null);
     // Maison : compteur Smarty (Leneda) s'il couvre au moins autant d'heures que l'estimation 3 phases × 230 V.
     const meter = (d) => !!(d && d.gridQ >= 92);
     const houseKwh = (d) => (meter(d) ? d.grid : d && d.houseHours ? d.house : null);
     const overEur = (d) => (meter(d) && T.overrun ? (d.over ?? 0) * T.overrun : 0);
-    const houseEur = (d) => { const k = houseKwh(d); return k == null ? null : k * (kwh(d) > 0 ? price(d) / kwh(d) : T.base) + overEur(d); };
+    const houseEur = (d) => { const k = houseKwh(d); return k == null ? null : k * (kwh(d) > 0 ? price(d) / kwh(d) : T.base * shareF(d)) + overEur(d); };
     const anyMeter = c.days.some(meter);
     $("cost-hc-leg").hidden = !T.hc;
     $("cost-house-leg").textContent = anyMeter ? "maison, compteur Smarty (Leneda)" : "maison, estimation 3 phases × 230 V";
-    const fee = T.monthly ? `abonnement ${eur(T.monthly)} €/mois` : "hors abonnement";
+    const fee = (T.monthly ? `abonnement ${eur(T.monthly)} €/mois` : "hors abonnement") + (T.shared ? ` · partagé ${fr(T.shared, 4)} €/kWh` : "");
     $("cost-tariff").textContent = (T.hc ? `HP ${fr(T.base, 4)} · HC ${fr(T.hc, 4)} €/kWh (${T.hcHours})` : `${fr(T.base, 4)} €/kWh`) + ` · ${fee}`;
     const today = by.get(c.today), yday = by.get(addDay(c.today, -1));
     const last7 = [...Array(7)].map((_, i) => by.get(addDay(c.today, -i))).filter(Boolean);
@@ -409,7 +412,7 @@
       const peak = Math.max(0, ...hm.filter(meter).map((d) => d.peak ?? 0)), ov = sum(hm, overEur);
       $("k-house").textContent = eur(sum(hm, houseEur));
       $("k-house-why").textContent = `${fr(sum(hm, houseKwh), 0)} kWh` + (hm.every(meter) ? "" : hm.some(meter) ? " (en partie estimé)" : " (estimation)") +
-        (peak ? ` · pic ${fr(peak, 1)} kW` + (T.pref ? ` / Pref ${fr(T.pref, 0)} kW` : "") : "") + (ov > 0 ? ` · dépassement ${eur(ov)} €` : "");
+        (peak ? ` · pic ${fr(peak, 1)} kW` + (T.pref ? ` / Pref ${fr(T.pref, 0)} kW` : "") : "") + (ov > 0 ? ` · dépassement ${eur(ov)} €` : "") + (hm.some((d) => d.sharedQ) ? ` · ${fr(sum(hm, (d) => d.shared ?? 0), 0)} kWh partagés` : "");
     }
     // Projection : consommation au rythme des 7 derniers jours ; l'abonnement (s'il est réglé) s'ajoute au mois entier.
     $("k-month-why").textContent = `fin de mois ≈ ${eur(mtd + perH * left + (T.monthly ?? 0), 0)} €${T.monthly ? " abonnement compris" : ""}` +
@@ -446,6 +449,7 @@
           (he != null ? row("var(--mist)", meter(d) ? "maison (compteur)" : "maison ≈", `${eur(he)} € · ${fr(houseKwh(d), 1)} kWh`) +
             (houseKwh(d) > 0 && d.hours >= (meter(d) ? d.gridQ / 4 : d.houseHours) - 1 ? row("var(--mist)", "part PAC", fr((100 * kwh(d)) / houseKwh(d), 0) + " %") : "") : "") +
           (meter(d) && d.peak != null ? row("var(--frost)", "pic 15 min", fr(d.peak, 1) + " kW" + (T.pref ? ` · Pref ${fr(T.pref, 0)}` : "")) : "") +
+          (meter(d) ? (d.sharedQ ? row("var(--t-cool)", "communauté", `${fr(d.shared, 1)} kWh · ${fr((100 * d.shared) / d.grid, 0)} %`) : row("var(--mist)", "communauté", "pas encore publié")) : "") +
           (overEur(d) > 0 ? row("var(--t-hot)", "dépassement", `${fr(d.over, 2)} kWh · ${eur(overEur(d))} €`) : "") +
           (d.gridQ && !meter(d) ? row("var(--mist)", "compteur", `${fr(d.gridQ / 4, 1)} h publiées sur 24`) : "") };
     });
