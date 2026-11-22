@@ -98,6 +98,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    ctx.waitUntil(collectLeneda(env).catch((e) => console.error("leneda", e && e.stack || e)));
     ctx.waitUntil(collect(env).catch(async (e) => {
       console.error("collect", e && e.stack || e);
       await env.DB.prepare("INSERT OR REPLACE INTO polls (ts, ok, n, detail) VALUES (?, 0, 0, ?)")
@@ -173,6 +174,38 @@ async function collect(env) {
   }
 
   stmts.push(env.DB.prepare("INSERT OR REPLACE INTO polls (ts, ok, n, detail) VALUES (?, 1, ?, NULL)").bind(ts, pts.length));
+  await env.DB.batch(stmts);
+}
+
+// ---------- Leneda (Luxembourg) : compteur Smarty, quarts d'heure ----------
+// Secrets LENEDA_API_KEY, LENEDA_ENERGY_ID, LENEDA_POD (code du point de comptage) ; LENEDA_BASE optionnel.
+// Une requête par heure au plus ; les 3 derniers jours sont relus (données publiées avec retard, versions corrigées).
+const LENEDA_OBIS = "1-1:1.29.0";
+async function collectLeneda(env) {
+  if (!env.LENEDA_API_KEY || !env.LENEDA_ENERGY_ID || !env.LENEDA_POD) return;
+  const ts = nowS();
+  if ((await kvGet(env, "leneda_ts", 0)) > ts - 3540) return;
+  const last = (await env.DB.prepare("SELECT MAX(ts) AS t FROM grid").first())?.t;
+  const from = Math.max(ts - 62 * 86400, last ? last - 3 * 86400 : 0);
+  const iso = (t) => new Date(t * 1000).toISOString().slice(0, 19) + "Z";
+  const base = env.LENEDA_BASE || "https://api.leneda.eu/api";
+  const url = `${base}/metering-points/${encodeURIComponent(env.LENEDA_POD)}/time-series?obisCode=${encodeURIComponent(LENEDA_OBIS)}` +
+    `&startDateTime=${encodeURIComponent(iso(from))}&endDateTime=${encodeURIComponent(iso(ts))}`;
+  const r = await fetch(url, { headers: { "X-API-KEY": env.LENEDA_API_KEY, "X-ENERGY-ID": env.LENEDA_ENERGY_ID, Accept: "application/json" } });
+  const stmts = [kvPut(env, "leneda_ts", ts)];
+  if (!r.ok) {
+    stmts.push(kvPut(env, "leneda_status", JSON.stringify({ ts, status: r.status })));
+    await env.DB.batch(stmts);
+    return;
+  }
+  const j = await r.json();
+  const rows = (j.items || []).map((it) => [Math.floor(Date.parse(it.startedAt) / 1000), Number(it.value)])
+    .filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v));
+  // Un seul statement (json_each) : pas de limite de paramètres ni de requêtes par invocation.
+  if (rows.length) stmts.push(env.DB.prepare(
+    "INSERT INTO grid (ts, kw) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?) WHERE true " +
+    "ON CONFLICT(ts) DO UPDATE SET kw = excluded.kw").bind(JSON.stringify(rows)));
+  stmts.push(kvPut(env, "leneda_status", JSON.stringify({ ts, status: r.status, n: rows.length, unit: j.unit ?? null, interval: j.intervalLength ?? null })));
   await env.DB.batch(stmts);
 }
 
@@ -285,7 +318,8 @@ async function series(env, q, house) {
 // PAC : moyenne horaire des compteurs NIBE « consommé, heure passée » (kWh), appoint compris.
 // Maison : 3 phases (A) × 230 V, estimation en puissance apparente (pas de cos φ).
 // Tarif : PRICE_KWH (TTC, base ou heures pleines), PRICE_HC + HC_HOURS ("22-6", "23:30-7:30,12-14"),
-// MONTHLY_FEE (abonnement TTC par mois, optionnel), TIMEZONE.
+// MONTHLY_FEE (abonnement TTC par mois, optionnel), TIMEZONE ; Leneda : PREF_KW (puissance de référence)
+// et OVERRUN_KWH (prix TTC du kWh au-delà de Pref, par quart d'heure).
 const USE = ["32495", "32496", "32499", "32500"];
 const VOLT = 230;
 function tariff(env) {
@@ -293,7 +327,8 @@ function tariff(env) {
   const hc = num(env.PRICE_HC), hcHours = String(env.HC_HOURS || "22-6");
   const ranges = hc ? hcHours.split(",").map((r) => r.split("-").map((x) => { const [h, m] = x.trim().split(":").map(Number); return h * 60 + (m || 0); }))
     .filter((r) => r.length === 2 && r.every((v) => Number.isFinite(v) && v >= 0 && v <= 1440)) : [];
-  return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges, monthly: num(env.MONTHLY_FEE) };
+  return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges, monthly: num(env.MONTHLY_FEE),
+    pref: num(env.PREF_KW), overrun: num(env.OVERRUN_KWH) };
 }
 const inRange = (m, [a, b]) => (a <= b ? m >= a && m < b : m >= a || m < b);
 
@@ -321,18 +356,32 @@ async function cost(env) {
     if (h.pac != null) { d.hp += h.pac * (1 - f); d.hc += h.pac * f; d.hours++; }
     if (h.ph === 3) { d.house += (h.amps * VOLT) / 1000; d.houseHours++; }
   }
+  // Compteur (Leneda) : kWh = kW moyen × 0,25 h ; dépassement = part au-delà de Pref, quart d'heure par quart d'heure.
+  const grid = (await env.DB.prepare("SELECT ts, kw FROM grid WHERE ts >= ?").bind(since).all()).results;
+  const loc = new Map();
+  for (const q of grid) {
+    const h = Math.floor(q.ts / 3600) * 3600;
+    let l = loc.get(h); if (!l) loc.set(h, (l = local(h)));
+    let d = days.get(l.day);
+    if (!d) days.set(l.day, (d = { d: l.day, hp: 0, hc: 0, hours: 0, house: 0, houseHours: 0 }));
+    d.grid = (d.grid ?? 0) + q.kw * 0.25; d.gridQ = (d.gridQ ?? 0) + 1;
+    d.peak = Math.max(d.peak ?? 0, q.kw);
+    if (T.pref) d.over = (d.over ?? 0) + Math.max(0, q.kw - T.pref) * 0.25;
+  }
   const r3 = (v) => Math.round(v * 1000) / 1000;
   return {
-    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz, monthly: T.monthly },
+    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz, monthly: T.monthly, pref: T.pref, overrun: T.overrun },
     today: local(nowS()).day,
-    days: [...days.values()].map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house) })),
+    days: [...days.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house),
+      ...(d.gridQ ? { grid: r3(d.grid), over: r3(d.over ?? 0), peak: r3(d.peak) } : {}) })),
   };
 }
 
 async function health(env) {
   const polls = (await env.DB.prepare("SELECT ts, ok, n FROM polls ORDER BY ts DESC LIMIT 12").all()).results;
   const hp = JSON.parse(await kvGet(env, "hist_probe", "null"));
-  return { polls, historyRoute: hp ? { status: hp.status, n: hp.n } : null };
+  const ln = JSON.parse(await kvGet(env, "leneda_status", "null"));
+  return { polls, historyRoute: hp ? { status: hp.status, n: hp.n } : null, leneda: ln ? { ts: ln.ts, status: ln.status, n: ln.n ?? null } : null };
 }
 
 // ---------- petits outils ----------

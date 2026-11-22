@@ -75,7 +75,18 @@ The cost board uses the NIBE energy log (heat pump consumption per hour, backup 
 | `MONTHLY_FEE` | Optional fixed monthly fee incl. VAT (subscription, network capacity, metering), added to the month projection |
 | `TIMEZONE` | Time zone for days and off-peak hours (default `Europe/Paris`) |
 
-Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed fees; set `MONTHLY_FEE` to include them in the month projection. Example for Luxembourg (Enovos + Creos, 2026): (energy 0.1321 + Creos network 0.0510 + electricity tax 0.0010 - compensation 0.0010) × 1.08 VAT ≈ 0.1978 €/kWh, `TIMEZONE=Europe/Luxembourg`, no off-peak hours. Creos capacity overrun charges above the reference power are not modelled. The whole-house figure is an estimate: phase currents × 230 V, so apparent power without power factor. `/api/cost` only answers under `/prive/` (or with `SHOW_HOUSE=1`).
+Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed fees; set `MONTHLY_FEE` to include them in the month projection. Example for Luxembourg (Enovos + Creos, 2026): (energy 0.1321 + Creos network 0.0510 + electricity tax 0.0010 - compensation 0.0010) × 1.08 VAT ≈ 0.1978 €/kWh, `TIMEZONE=Europe/Luxembourg`, no off-peak hours. Creos capacity overrun charges are computed when Leneda data is available (see below).
+
+### Luxembourg: real consumption from Leneda
+
+[Leneda](https://www.leneda.lu) is the national metering data platform. With it, the house figure comes from the Smarty meter itself (15-minute average power, OBIS `1-1:1.29.0`) instead of the phase-current estimate. You also get the daily 15-minute peak and, with `PREF_KW` and `OVERRUN_KWH`, the cost of energy drawn above your reference power.
+
+1. In https://app.leneda.eu, add your metering point (POD code from your bill; approval can take a few business days).
+2. In *My profile → API keys*, create a key. It is shown only once.
+3. Store the three values as secrets: `npx wrangler secret put LENEDA_API_KEY`, then `LENEDA_ENERGY_ID` and `LENEDA_POD` (or put them in `.env` on a VM).
+4. Apply the new migration: `npx wrangler d1 migrations apply pac --remote`.
+
+The collector calls Leneda at most once an hour and re-reads the last 3 days, since the data is published with a delay. The first call loads the last 62 days. `/api/health` shows the last Leneda HTTP status. While a day is not fully published, the house figure for that day falls back to the phase estimate. The whole-house figure is an estimate: phase currents × 230 V, so apparent power without power factor. `/api/cost` only answers under `/prive/` (or with `SHOW_HOUSE=1`).
 
 Keep `workers_dev: false`, otherwise the `*.workers.dev` URL would bypass Access.
 

@@ -192,11 +192,12 @@
       <div class="watt hot"><span class="label">Aujourd'hui · PAC</span><b><span id="k-today">-</span><small>€</small></b><span class="why" id="k-today-why"></span></div>
       <div class="watt"><span class="label">Hier</span><b><span id="k-yday">-</span><small>€</small></b><span class="why" id="k-yday-why"></span></div>
       <div class="watt"><span class="label">7 derniers jours</span><b><span id="k-7d">-</span><small>€</small></b><span class="why" id="k-7d-why"></span></div>
-      <div class="watt warm"><span class="label">Mois en cours</span><b><span id="k-month">-</span><small>€</small></b><span class="why" id="k-month-why"></span></div>
+      <div class="watt warm"><span class="label">Mois en cours · PAC</span><b><span id="k-month">-</span><small>€</small></b><span class="why" id="k-month-why"></span></div>
+      <div class="watt cool" id="house-cost-tile" hidden><span class="label">Mois en cours · maison</span><b><span id="k-house">-</span><small>€</small></b><span class="why" id="k-house-why"></span></div>
     </div>
     <div class="panel wide">
       <div class="meta"><h3>Coût par jour · 30 jours</h3>
-        <div class="legend"><span><i style="background:var(--t-hot)"></i>PAC, heures pleines ou base</span><span><i style="background:var(--t-cool)"></i>PAC, heures creuses</span><span><i class="dash"></i>maison, estimation 3 phases × 230 V</span></div></div>
+        <div class="legend"><span><i style="background:var(--t-hot)"></i>PAC, heures pleines ou base</span><span id="cost-hc-leg"><i style="background:var(--t-cool)"></i>PAC, heures creuses</span><span><i class="dash"></i><span id="cost-house-leg">maison, estimation 3 phases × 230 V</span></span></div></div>
       <svg id="c-cost" viewBox="0 0 1000 240" role="img" aria-label="Coût de l'électricité par jour sur 30 jours"></svg>
     </div>
   </section>
