@@ -20,7 +20,8 @@ export const TRACKED = [
   "44069", "44071", "44073",         // EB101 démarrages, heures, heures ECS
   "44059", "44060", "44061", "44363", "44058", "44055", "44362", // BT14 BT15 BT17 BT16 BT12 BT3 BT28
   "41163", "41162",                  // BP9, BP8 (température de saturation, °C)
-  "41025", "41019",                  // EVI position, surchauffe EVI
+  "41025", "41019", "41017",         // EVI position, surchauffe EVI, détendeur principal EEV (QN1)
+  "50312", "43115",                  // puissance calorifique EB101 (kW), consigne de charge ECS
   // Journal d'énergie NIBE : puissance instantanée + bilans heure passée.
   "32486",                           // puissance électrique actuelle (kW)
   "32491", "32492",                  // produit chauffage / ECS, heure passée (kWh)

@@ -55,7 +55,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @media (prefers-reduced-motion:reduce){.flow,.dot{animation:none}}
 
 /* diag */
-.diag{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.diag{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
 .chip{border:1px solid var(--rule);padding:12px 12px 10px;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;min-width:0}
 .chip::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:100%;background:var(--s,var(--ok))}
 .chip b{font-family:var(--f-display);font-weight:700;font-size:34px;line-height:1}
@@ -92,7 +92,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @media (max-width:900px){.energy{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-top:1px solid var(--rule);padding-top:14px}
 
-@media (max-width:900px){.hero{grid-template-columns:1fr}.diag{grid-template-columns:repeat(3,minmax(0,1fr))}.charts{grid-template-columns:1fr}}
+@media (max-width:900px){.hero{grid-template-columns:1fr}.diag{grid-template-columns:repeat(4,minmax(0,1fr))}.charts{grid-template-columns:1fr}}
 @media (max-width:480px){.diag{grid-template-columns:repeat(2,minmax(0,1fr))}.sub b{font-size:24px}}
 
 .wait{border:1px dashed var(--rule);padding:14px;font-size:14px;color:var(--mist)}
