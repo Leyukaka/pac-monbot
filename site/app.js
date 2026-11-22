@@ -30,7 +30,9 @@
   const unit = (pid) => NOW?.points?.[pid]?.unit || "";
   const dmId = () => ID.dm.find((p) => NOW?.points?.[p]?.last_val != null) || ID.dm[0];
 
-  async function getJSON(u) { const r = await fetch(u, { cache: "no-store" }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); }
+  // Sous /prive/ (Cloudflare Access), l'API privée inclut les phases maison.
+  const BASE = location.pathname.startsWith("/prive/") ? "/prive" : "";
+  async function getJSON(u) { const r = await fetch(BASE + u, { cache: "no-store" }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); }
 
   // ---------- état actuel ----------
   function renderNow() {

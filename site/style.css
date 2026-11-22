@@ -128,3 +128,4 @@ html,body{margin:0}
 .brand .word span{color:var(--t-warm)}
 
 [hidden] { display: none !important; }
+.priv-link{color:var(--mist);text-decoration:none}.priv-link:hover{color:var(--frost)}

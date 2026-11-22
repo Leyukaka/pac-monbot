@@ -3,7 +3,7 @@
   "name": "pac",
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "./site", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "assets": { "directory": "./site", "binding": "ASSETS", "run_worker_first": ["/api/*", "/prive", "/prive/*"] },
   "routes": [{ "pattern": "pac.example.com", "custom_domain": true }],
   // No workers.dev URL: it would bypass Cloudflare Access on your hostname.
   "workers_dev": false,
@@ -15,5 +15,7 @@
   "observability": { "enabled": true },
   // 60 API requests per minute per IP.
   "ratelimits": [{ "name": "RL", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }]
-  // "vars": { "SHOW_HOUSE": "1" }  // only once the site is protected (Access)
+  // Private area /prive/ (house phase currents): protect https://<host>/prive with a Cloudflare Access app,
+  // then set your team name and the app's AUD tag so the Worker verifies the Access token itself.
+  // "vars": { "ACCESS_TEAM": "your-team", "ACCESS_AUD": "your-app-aud-tag" }
 }

@@ -47,14 +47,21 @@ npx wrangler deploy
 
 The first data point arrives within 5 minutes.
 
-### Protect it with Cloudflare Access (recommended)
+### Public page + private area (Cloudflare Access)
 
-In the Cloudflare dashboard, go to **Zero Trust → Access controls → Applications → Create new application → Self-hosted**:
-- **Destination:** your hostname. Leave the path empty so `/api/*` is covered too.
-- **Policy:** Allow, `Emails` equal to your address.
-- **Login method:** One-time PIN, a code sent by email. It is built in, so there is no OAuth app to create. Google or GitHub also work.
+The root page is public and never includes the house phase currents (BE1 to BE3), because they reveal when people are home. The same dashboard with those values lives under `/prive/`, protected by Cloudflare Access:
 
-Keep `workers_dev: false`, otherwise the `*.workers.dev` URL would bypass Access. Once the site is protected, you can add `"vars": { "SHOW_HOUSE": "1" }` to show the house phase currents (BE1 to BE3).
+1. In the Cloudflare dashboard, go to **Zero Trust → Access controls → Applications → Create new application → Self-hosted**.
+2. Set the **destination** to your hostname with the path `prive`.
+3. Add a **policy**: Allow, `Emails` equal to the addresses you want.
+4. For the **login method**, use One-time PIN (a code sent by email): it is built in, with no OAuth app to create. Google or GitHub also work.
+5. Put your team name and the application's AUD tag in `wrangler.jsonc`: `"vars": { "ACCESS_TEAM": "...", "ACCESS_AUD": "..." }`. The AUD tag is shown in the app's settings, or as `kid=` in the login redirect URL.
+
+The Worker then checks the `Cf-Access-Jwt-Assertion` token itself before serving the private data: RS256 signature, issuer, audience and expiry. If Access is misconfigured, `/prive/` returns 403 instead of leaking data.
+
+To protect the whole site instead, leave the Access path empty.
+
+Keep `workers_dev: false`, otherwise the `*.workers.dev` URL would bypass Access.
 
 ## B. Run on a VM or server
 
@@ -94,7 +101,7 @@ There is **no built-in login**, and the server listens on `127.0.0.1` only. To r
 ## Security
 
 - No secrets live in the code. The myUplink token is cached in the database and never returned by the API.
-- The API does not expose the full point list or the system and device IDs. House phase currents stay hidden unless `SHOW_HOUSE=1`, because they reveal when people are home.
+- The API does not expose the full point list or the system and device IDs. House phase currents are only served under `/prive/` with a verified Access token, or everywhere with `SHOW_HOUSE=1` (VM mode behind your own authentication).
 - On Cloudflare, each IP is limited to 60 requests per minute. A myUplink 429 pauses collection according to `RateLimit-Reset`.
 - The page uses a strict CSP (`site/_headers`), with no third-party scripts, fonts or CDNs.
 - Long ranges read hourly aggregates from `readings_h` instead of the raw readings.

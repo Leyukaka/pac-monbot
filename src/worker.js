@@ -1,6 +1,7 @@
 // pac : collecte myUplink (cron) + API JSON + site statique.
 // Secrets : MYUPLINK_CLIENT_ID, MYUPLINK_CLIENT_SECRET (wrangler secret put). Lecture seule (READSYSTEM).
-// Variable : SHOW_HOUSE = "1" pour publier les intensités des phases maison (à n'activer que derrière une authentification).
+// Phases maison : servies seulement sous /prive/ (Cloudflare Access + JWT vérifié ici, variables ACCESS_TEAM et ACCESS_AUD),
+// ou partout avec SHOW_HOUSE = "1" (mode VM derrière une authentification).
 
 const API = "https://api.myuplink.com";
 
@@ -26,7 +27,7 @@ export const TRACKED = [
   "32499", "32500",                  // consommé par l'appoint chauffage / ECS, heure passée (kWh)
   "50321", "50322",                  // consommation / production sur 1 an (kWh)
 ];
-// Révèlent la présence dans la maison : jamais publiés sans SHOW_HOUSE=1.
+// Révèlent la présence dans la maison : jamais publiés hors /prive/ (sauf SHOW_HOUSE=1).
 const HOUSE = new Set(["40079", "40081", "40083"]);
 
 // [durée, pas d'agrégation] ; "30dd" = 30 jours par jour civil UTC (bande thermique, bilan).
@@ -35,6 +36,7 @@ const RANGES = { "24h": [86400, 600], "7d": [7 * 86400, 3600], "30d": [30 * 8640
 const STEPS = [300, 600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 7 * 86400];
 const MAX_SPAN = 3 * 365 * 86400;
 const CACHE_S = 60;
+const PRIV = "/prive";
 
 const SEC_HEADERS = {
   "x-content-type-options": "nosniff",
@@ -46,7 +48,21 @@ const SEC_HEADERS = {
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
+    let path = url.pathname, priv = false;
+    if (path === PRIV) return Response.redirect(url.origin + PRIV + "/", 301);
+    if (path.startsWith(PRIV + "/")) {
+      // Espace privé : Access filtre en amont, le Worker revérifie le jeton (défense en profondeur).
+      if (!(await accessOk(req, env))) return new Response("accès refusé", { status: 403, headers: SEC_HEADERS });
+      priv = true;
+      path = path.slice(PRIV.length);
+      if (!path.startsWith("/api/")) {
+        const u = new URL(req.url); u.pathname = path;
+        const r = await env.ASSETS.fetch(new Request(u, req));
+        const out = new Response(r.body, r); out.headers.set("cache-control", "no-store");
+        return out;
+      }
+    }
+    if (!path.startsWith("/api/")) return env.ASSETS.fetch(req);
     if (req.method !== "GET") return json({ error: "méthode non autorisée" }, 405);
 
     // Limitation de débit par IP (binding Workers Rate Limiting).
@@ -56,7 +72,7 @@ export default {
       if (!success) return json({ error: "trop de requêtes, réessayez dans une minute" }, 429);
     }
 
-    const route = { "/api/now": now, "/api/series": series, "/api/health": health }[url.pathname];
+    const route = { "/api/now": now, "/api/series": series, "/api/health": health }[path];
     if (!route) return json({ error: "inconnu" }, 404);
 
     // Cache 60 s sur une clé normalisée (fenêtres arrondies), pour absorber les rafraîchissements.
@@ -69,7 +85,7 @@ export default {
     if (hit) return toClient(hit);
     let res;
     try {
-      res = json(await route(env, url.searchParams), 200, CACHE_S);
+      res = json(await route(env, url.searchParams, priv || env.SHOW_HOUSE === "1"), 200, CACHE_S);
     } catch (e) {
       console.error("api", url.pathname, e && e.stack || e);
       return json({ error: "erreur interne" }, 500);
@@ -210,8 +226,8 @@ async function checkRate(env, r) {
 
 // ---------- lecture ----------
 
-async function now(env) {
-  const pub = TRACKED.filter((p) => env.SHOW_HOUSE === "1" || !HOUSE.has(p));
+async function now(env, _q, house) {
+  const pub = TRACKED.filter((p) => house || !HOUSE.has(p));
   const rows = (await env.DB.prepare("SELECT pid, unit, last_ts, last_val FROM points WHERE pid IN (" +
     pub.map(() => "?").join(",") + ")").bind(...pub).all()).results;
   const last = await env.DB.prepare("SELECT ts, ok FROM polls ORDER BY ts DESC LIMIT 1").first();
@@ -226,7 +242,7 @@ async function now(env) {
     points: Object.fromEntries(rows.map((r) => [r.pid, r])),
     counters7d: Object.fromEntries(old.map((r) => [r.pid, { value: r.value, ts: r.ts }])),
     alarms,
-    house: env.SHOW_HOUSE === "1",
+    house: !!house,
     poll: { last: last ? { ts: last.ts, ok: last.ok } : null, lastOk: lastOk?.ts ?? null },
     server: nowS(),
   };
@@ -234,7 +250,7 @@ async function now(env) {
 
 function pickStep(span) { return STEPS.find((s) => span / s <= 400) || STEPS[STEPS.length - 1]; }
 
-async function series(env, q) {
+async function series(env, q, house) {
   let [span, step] = RANGES[q.get("range")] || RANGES["24h"];
   let since = nowS() - span, until = nowS() + 60;
   const from = Number(q.get("from")), to = Number(q.get("to"));
@@ -246,7 +262,7 @@ async function series(env, q) {
   }
   if (span > MAX_SPAN) { since = until - MAX_SPAN; step = pickStep(MAX_SPAN); }
   const pids = [...new Set((q.get("pids") || "").split(","))]
-    .filter((p) => TRACKED.includes(p) && (env.SHOW_HOUSE === "1" || !HOUSE.has(p))).slice(0, 12);
+    .filter((p) => TRACKED.includes(p) && (house || !HOUSE.has(p))).slice(0, 12);
   if (!pids.length) return {};
   const ph = pids.map(() => "?").join(",");
   // Pas >= 1 h : table horaire (au plus ~24 lignes/jour/point) au lieu des relevés bruts.
@@ -284,4 +300,38 @@ async function kvGet(env, k, d) {
 }
 function kvPut(env, k, v) {
   return env.DB.prepare("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)").bind(k, String(v));
+}
+
+// ---------- Cloudflare Access ----------
+// Vérifie Cf-Access-Jwt-Assertion : RS256, émetteur = équipe Access, audience = AUD de l'application, non expiré.
+let ACCESS_KEYS = null, ACCESS_KEYS_AT = 0;
+async function accessKeys(iss, force) {
+  if (!force && ACCESS_KEYS && Date.now() - ACCESS_KEYS_AT < 3600e3) return ACCESS_KEYS;
+  const r = await fetch(iss + "/cdn-cgi/access/certs");
+  if (!r.ok) throw new Error("certs " + r.status);
+  ACCESS_KEYS = (await r.json()).keys || []; ACCESS_KEYS_AT = Date.now();
+  return ACCESS_KEYS;
+}
+const b64u = (x) => Uint8Array.from(atob(x.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((x.length + 3) % 4)), (c) => c.charCodeAt(0));
+export async function accessOk(req, env) {
+  if (!env.ACCESS_TEAM || !env.ACCESS_AUD) return false;
+  const jwt = req.headers.get("cf-access-jwt-assertion") || "";
+  const [h, p, sig] = jwt.split(".");
+  if (!h || !p || !sig) return false;
+  try {
+    const td = new TextDecoder();
+    const head = JSON.parse(td.decode(b64u(h))), pay = JSON.parse(td.decode(b64u(p)));
+    const iss = `https://${env.ACCESS_TEAM}.cloudflareaccess.com`;
+    const aud = Array.isArray(pay.aud) ? pay.aud : [pay.aud];
+    if (head.alg !== "RS256" || pay.iss !== iss || !aud.includes(env.ACCESS_AUD) || !(pay.exp > nowS())) return false;
+    let jwk = (await accessKeys(iss)).find((k) => k.kid === head.kid);
+    if (!jwk) jwk = (await accessKeys(iss, true)).find((k) => k.kid === head.kid); // rotation des clés
+    if (!jwk) return false;
+    const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: "RS256", ext: true },
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64u(sig), new TextEncoder().encode(h + "." + p));
+  } catch (e) {
+    console.error("access", e && e.message || e);
+    return false;
+  }
 }
