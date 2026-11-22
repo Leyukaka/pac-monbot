@@ -21,6 +21,16 @@
 
   <div class="wait" id="a-wait">Chargement de l'analyse…</div>
 
+  <section aria-label="Période" class="a-sec" id="a-period" hidden>
+    <div class="sec-h"><h2>Période</h2>
+      <div class="tabs" role="group" aria-label="Raccourcis" id="a-presets"><button data-p="7">7 j</button><button data-p="30">30 j</button><button data-p="m">Ce mois</button><button data-p="pm">Mois dernier</button><button data-p="all">Tout</button></div></div>
+    <div class="panel wide">
+      <div class="meta"><h3 class="num" id="a-period-v">-</h3><span class="label" id="a-period-n"></span></div>
+      <label class="a-slider"><span class="label">Début</span><input type="range" id="a-d0" min="0" max="0" step="1" value="0" aria-label="Premier jour de la période"></label>
+      <label class="a-slider"><span class="label">Fin</span><input type="range" id="a-d1" min="0" max="0" step="1" value="0" aria-label="Dernier jour de la période"></label>
+    </div>
+  </section>
+
   <section aria-label="Tarif" class="a-sec">
     <div class="sec-h"><h2>Tarif appliqué</h2><span class="label" id="a-tariff">-</span></div>
     <div class="a-prices num" id="a-prices"></div>

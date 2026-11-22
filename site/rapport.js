@@ -133,11 +133,48 @@
     drawProfile();
   }
 
-  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
-    K = b.dataset.k; document.querySelectorAll(".tabs button").forEach((o) => o.setAttribute("aria-pressed", String(o === b))); if (A) drawProfile();
+  document.querySelectorAll(".tabs button[data-k]").forEach((b) => b.addEventListener("click", () => {
+    K = b.dataset.k; document.querySelectorAll(".tabs button[data-k]").forEach((o) => o.setAttribute("aria-pressed", String(o === b))); if (A) drawProfile();
   }));
 
-  fetch(BASE + "/api/analysis", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((j) => {
-    A = j; $("a-wait").hidden = true; render();
-  }).catch((e) => { $("a-wait").textContent = e === 404 ? "Analyse réservée à l'espace privé." : "Analyse indisponible pour le moment."; });
+  // Période : deux curseurs (début, fin) sur l'étendue des données, en jours locaux ; recalcul serveur au relâchement.
+  const addD = (k, n) => new Date(Date.parse(k + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+  const nDays = (a, b) => Math.round((Date.parse(b + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / 864e5);
+  const dLong = (k) => new Date(k + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  let SPAN = null, seq = 0;
+  const s0 = $("a-d0"), s1 = $("a-d1");
+  const cur = () => [addD(SPAN.from, Number(s0.value)), addD(SPAN.from, Number(s1.value))];
+  const label = () => { const [a, b] = cur(), n = nDays(a, b) + 1;
+    $("a-period-v").textContent = a === b ? dLong(a) : `${dLong(a)} → ${dLong(b)}`;
+    $("a-period-n").textContent = `${n} jour${n > 1 ? "s" : ""}`; };
+  const setRange = (a, b) => { if (!SPAN) return;
+    const max = nDays(SPAN.from, SPAN.to), cl = (v) => Math.min(max, Math.max(0, v));
+    s0.value = cl(nDays(SPAN.from, a < SPAN.from ? SPAN.from : a)); s1.value = cl(nDays(SPAN.from, b > SPAN.to ? SPAN.to : b)); label(); load(...cur()); };
+  const fix = (moved) => { if (Number(s0.value) > Number(s1.value)) (moved === s0 ? s1 : s0).value = moved.value; label(); };
+  s0.oninput = () => fix(s0); s1.oninput = () => fix(s1);
+  s0.onchange = s1.onchange = () => load(...cur());
+  $("a-presets").addEventListener("click", (e) => { const p = e.target.closest("button")?.dataset.p; if (!p || !SPAN) return;
+    const t = SPAN.to;
+    if (p === "all") setRange(SPAN.from, t);
+    else if (p === "m") setRange(t.slice(0, 8) + "01", t);
+    else if (p === "pm") { const e1 = addD(t.slice(0, 8) + "01", -1); setRange(e1.slice(0, 8) + "01", e1); }
+    else setRange(addD(t, 1 - Number(p)), t); });
+
+  function load(d0, d1) {
+    const my = ++seq, q = d0 ? `?d0=${d0}&d1=${d1}` : "";
+    document.body.classList.add("a-busy");
+    fetch(BASE + "/api/analysis" + q, { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((j) => {
+      if (my !== seq) return;
+      if (j.error) throw j.error;
+      A = j; $("a-wait").hidden = true; document.body.classList.remove("a-busy");
+      const sp = j.period?.span;
+      if (sp && !SPAN) { SPAN = sp; const max = nDays(sp.from, sp.to);
+        for (const s of [s0, s1]) s.max = max;
+        const a = j.meterFrom ? new Date(j.meterFrom * 1000).toLocaleDateString("en-CA", { timeZone: "Europe/Luxembourg" }) : sp.from;
+        s0.value = Math.max(0, nDays(sp.from, a)); s1.value = max; label(); $("a-period").hidden = false; }
+      render();
+    }).catch((e) => { if (my !== seq) return; document.body.classList.remove("a-busy");
+      $("a-wait").hidden = false; $("a-wait").textContent = e === 404 ? "Analyse réservée à l'espace privé." : "Analyse indisponible pour le moment."; });
+  }
+  load();
 })();

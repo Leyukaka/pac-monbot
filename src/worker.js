@@ -112,7 +112,7 @@ export default {
 function cacheKey(url) {
   const k = new URL(url.origin + url.pathname);
   const q = url.searchParams;
-  for (const name of ["range", "pids"]) if (q.has(name)) k.searchParams.set(name, q.get(name));
+  for (const name of ["range", "pids", "d0", "d1"]) if (q.has(name)) k.searchParams.set(name, q.get(name));
   const from = Number(q.get("from")), to = Number(q.get("to"));
   if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
     const g = Math.max(60, pickStep(to - from)); // arrondi au pas : même clé pour des fenêtres voisines
@@ -509,8 +509,15 @@ async function costCompute(env, T) {
 // ---------- analyse (privé) : tranches, profils horaires, partage, pics ----------
 // Maison = quarts d'heure du compteur (Leneda) ; PAC = heures NIBE. Tranche d'une heure locale :
 // mode ligne à ligne : prix min = « creuse », max = « pointe », le reste = « base » ; mode simple : HC = creuse, sinon base.
-async function analysis(env) {
-  const T = tariff(env), key = "a:" + JSON.stringify(T);
+// Période : ?d0=AAAA-MM-JJ&d1=AAAA-MM-JJ (jours locaux inclus, 400 jours au plus). Sans période : 62 derniers jours, gardés en base une heure.
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+async function analysis(env, q) {
+  const T = tariff(env), key = "a2:" + JSON.stringify(T);
+  const d0 = q?.get("d0"), d1 = q?.get("d1");
+  if (d0 || d1) {
+    if (!DAY_RE.test(d0 ?? "") || !DAY_RE.test(d1 ?? "") || d1 < d0 || Date.parse(d1) - Date.parse(d0) > 400 * 864e5) return { error: "période invalide" };
+    return analysisCompute(env, T, d0, d1);
+  }
   const c = JSON.parse(await kvGet(env, "analysis_cache", "null"));
   if (c && c.key === key && c.ts > nowS() - 3600) return c.data;
   const data = await analysisCompute(env, T);
@@ -518,7 +525,7 @@ async function analysis(env) {
   return data;
 }
 
-async function analysisCompute(env, T) {
+async function analysisCompute(env, T, d0 = null, d1 = null) {
   const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: T.tz, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" });
   const lc = new Map();
   const local = (ts) => {
@@ -535,7 +542,10 @@ async function analysisCompute(env, T) {
   for (const we of [false, true]) for (let h = 0; h < 24; h++) { const b = bandOf(we, h); (bandPriceAvg[b] ||= new Set()).add(Math.round(T.supplier(we, h, h * 60 + 30) * 1e5) / 1e5); }
   const schedule = { wd: [...Array(24)].map((_, h) => bandOf(false, h)), we: [...Array(24)].map((_, h) => bandOf(true, h)) };
 
-  const since = Math.floor((nowS() - 62 * 86400) / 3600) * 3600;
+  // Marge d'un jour de chaque côté pour le fuseau, puis filtre exact sur le jour local.
+  const since = d0 ? Date.parse(d0 + "T00:00:00Z") / 1000 - 86400 : Math.floor((nowS() - 62 * 86400) / 3600) * 3600;
+  const until = d1 ? Date.parse(d1 + "T00:00:00Z") / 1000 + 2 * 86400 : nowS() + 3600;
+  const inside = (l) => (!d0 || l.day >= d0) && (!d1 || l.day <= d1);
   const z = () => ({ creuse: { kwh: 0, eur: 0 }, base: { kwh: 0, eur: 0 }, pointe: { kwh: 0, eur: 0 } });
   const bands = { house: z(), pac: z(), shared: z() };
   const prof = { wd: { house: Array(24).fill(0), pac: Array(24).fill(0), hd: new Set(), pd: new Set() }, we: { house: Array(24).fill(0), pac: Array(24).fill(0), hd: new Set(), pd: new Set() } };
@@ -544,9 +554,13 @@ async function analysisCompute(env, T) {
   const hist = new Map();
   const byHour = new Map();
 
-  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw, sh FROM grid WHERE ts >= ? ORDER BY ts").bind(since).all().catch(() => ({ results: [] }))).results : [];
+  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw, sh FROM grid WHERE ts >= ? AND ts < ? ORDER BY ts").bind(since, until).all().catch(() => ({ results: [] }))).results : [];
+  let meterFrom = null, meterTo = null;
   for (const q of grid) {
-    const hts = Math.floor(q.ts / 3600) * 3600, l = local(hts), b = bandOf(l.we, l.h);
+    const hts = Math.floor(q.ts / 3600) * 3600, l = local(hts);
+    if (!inside(l)) continue;
+    const b = bandOf(l.we, l.h);
+    meterFrom ??= q.ts; meterTo = q.ts;
     const S = T.supplier(l.we, l.h, l.h * 60 + 30), Sh = T.shared ?? S;
     const g = q.kw * 0.25, x = q.sh != null ? Math.min(q.sh, q.kw) * 0.25 : null;
     const eur = x != null ? (g - x) * S + x * Sh : g * S;
@@ -560,12 +574,13 @@ async function analysisCompute(env, T) {
     let m = byHour.get(hts); if (!m) byHour.set(hts, (m = { kwh: 0, eur: 0, q: 0 })); m.kwh += g; m.eur += eur; m.q++;
   }
 
-  const rows = (await env.DB.prepare(`SELECT ts, pid, a FROM readings_h WHERE ts >= ? AND pid IN (${USE.map(() => "?").join(",")})`).bind(since, ...USE).all()).results;
+  const rows = (await env.DB.prepare(`SELECT ts, pid, a FROM readings_h WHERE ts >= ? AND ts < ? AND pid IN (${USE.map(() => "?").join(",")})`).bind(since, until, ...USE).all()).results;
   const pac = new Map();
   for (const r of rows) pac.set(r.ts, (pac.get(r.ts) ?? 0) + r.a);
   let pacFrom = null;
   for (const [ts, k] of pac) {
-    const l = local(ts), b = bandOf(l.we, l.h), m = byHour.get(ts);
+    const l = local(ts); if (!inside(l)) continue;
+    const b = bandOf(l.we, l.h), m = byHour.get(ts);
     const p = m && m.q === 4 && m.kwh > 0 ? m.eur / m.kwh : T.supplier(l.we, l.h, l.h * 60 + 30);
     bands.pac[b].kwh += k; bands.pac[b].eur += k * p;
     const P = prof[l.we ? "we" : "wd"]; P.pac[l.h] += k; P.pd.add(l.day);
@@ -573,6 +588,11 @@ async function analysisCompute(env, T) {
     pacFrom = pacFrom == null ? ts : Math.min(pacFrom, ts);
   }
 
+  // Étendue totale des données, pour les curseurs de période.
+  const gs = env.LENEDA_POD ? await env.DB.prepare("SELECT MIN(ts) a, MAX(ts) b FROM grid").first().catch(() => null) : null;
+  const ps = await env.DB.prepare(`SELECT MIN(ts) a, MAX(ts) b FROM readings_h WHERE pid IN (${USE.map(() => "?").join(",")})`).bind(...USE).first();
+  const lo2 = [gs?.a, ps?.a].filter((v) => v != null), hi2 = [gs?.b, ps?.b].filter((v) => v != null);
+  const span = lo2.length ? { from: local(Math.floor(Math.min(...lo2) / 3600) * 3600).day, to: local(Math.floor(Math.max(...hi2) / 3600) * 3600).day } : null;
   const r3 = (v) => Math.round(v * 1000) / 1000;
   const rb = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { kwh: r3(v.kwh), eur: r3(v.eur) }]));
   const avg = (arr, n) => arr.map((v) => r3(n ? v / n : 0));
@@ -580,7 +600,7 @@ async function analysisCompute(env, T) {
     tariff: { mode: T.mode, label: T.label, pref: T.pref, overrun: T.overrun, shared: T.shared, monthly: T.monthly,
       prices: Object.fromEntries(Object.entries(bandPriceAvg).map(([k, s]) => [k, [...s].sort()])) },
     schedule,
-    meterFrom: grid.length ? grid[0].ts : null, meterTo: grid.length ? grid[grid.length - 1].ts : null, pacFrom,
+    period: { d0, d1, span }, meterFrom, meterTo, pacFrom,
     bands: { house: rb(bands.house), pac: rb(bands.pac), shared: rb(bands.shared) },
     profile: Object.fromEntries(["wd", "we"].map((k) => [k, { house: avg(prof[k].house, prof[k].hd.size), pac: avg(prof[k].pac, prof[k].pd.size), houseDays: prof[k].hd.size, pacDays: prof[k].pd.size }])),
     peaks: [...hist].sort((a, b) => a[0] - b[0]).map(([kw, q]) => ({ kw, q })),
