@@ -18,5 +18,5 @@
   // Private area /prive/ (house phase currents): protect https://<host>/prive with a Cloudflare Access app,
   // then set your team name and the app's AUD tag so the Worker verifies the Access token itself.
   // "vars": { "ACCESS_TEAM": "your-team", "ACCESS_AUD": "your-app-aud-tag",
-  //           "PRICE_KWH": "0.1952", "PRICE_HC": "0.1635", "HC_HOURS": "22-6", "TIMEZONE": "Europe/Paris" }
+  //           "PRICE_KWH": "0.1952", "PRICE_HC": "0.1635", "HC_HOURS": "22-6", "TIMEZONE": "Europe/Paris", "MONTHLY_FEE": "" }
 }

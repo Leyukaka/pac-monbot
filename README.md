@@ -72,9 +72,10 @@ The cost board uses the NIBE energy log (heat pump consumption per hour, backup 
 | `PRICE_KWH` | Price per kWh, base tariff or peak hours (default 0.1952) |
 | `PRICE_HC` | Optional off-peak price per kWh |
 | `HC_HOURS` | Off-peak local hours, e.g. `22-6` or `23:30-7:30,12-14` (half-hour precision) |
+| `MONTHLY_FEE` | Optional fixed monthly fee incl. VAT (subscription, network capacity, metering), added to the month projection |
 | `TIMEZONE` | Time zone for days and off-peak hours (default `Europe/Paris`) |
 
-Amounts exclude the subscription. The whole-house figure is an estimate: phase currents × 230 V, so apparent power without power factor. `/api/cost` only answers under `/prive/` (or with `SHOW_HOUSE=1`).
+Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed fees; set `MONTHLY_FEE` to include them in the month projection. Example for Luxembourg (Enovos + Creos, 2026): (energy 0.1321 + Creos network 0.0510 + electricity tax 0.0010 - compensation 0.0010) × 1.08 VAT ≈ 0.1978 €/kWh, `TIMEZONE=Europe/Luxembourg`, no off-peak hours. Creos capacity overrun charges above the reference power are not modelled. The whole-house figure is an estimate: phase currents × 230 V, so apparent power without power factor. `/api/cost` only answers under `/prive/` (or with `SHOW_HOUSE=1`).
 
 Keep `workers_dev: false`, otherwise the `*.workers.dev` URL would bypass Access.
 

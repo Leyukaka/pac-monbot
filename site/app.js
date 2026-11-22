@@ -371,7 +371,8 @@
     const kwh = (d) => (d ? d.hp + d.hc : null);
     // Maison : estimation au prix moyen payé par la PAC ce jour-là (ou au tarif de base).
     const houseEur = (d) => (d && d.houseHours ? d.house * (kwh(d) > 0 ? price(d) / kwh(d) : T.base) : null);
-    $("cost-tariff").textContent = T.hc ? `HP ${fr(T.base, 4)} · HC ${fr(T.hc, 4)} €/kWh (${T.hcHours}) · hors abonnement` : `${fr(T.base, 4)} €/kWh · hors abonnement`;
+    const fee = T.monthly ? `abonnement ${eur(T.monthly)} €/mois` : "hors abonnement";
+    $("cost-tariff").textContent = (T.hc ? `HP ${fr(T.base, 4)} · HC ${fr(T.hc, 4)} €/kWh (${T.hcHours})` : `${fr(T.base, 4)} €/kWh`) + ` · ${fee}`;
     const today = by.get(c.today), yday = by.get(addDay(c.today, -1));
     const last7 = [...Array(7)].map((_, i) => by.get(addDay(c.today, -i))).filter(Boolean);
     const sum = (list, f) => list.reduce((a, d) => a + (f(d) ?? 0), 0);
@@ -387,7 +388,8 @@
     $("k-7d").textContent = eur(sum(last7, price));
     $("k-7d-why").textContent = last7.length ? `${fr(sum(last7, kwh), 0)} kWh · ${eur(perH * 24)} € par jour en moyenne` : "-";
     $("k-month").textContent = eur(mtd);
-    $("k-month-why").textContent = `fin de mois ≈ ${eur(mtd + perH * left, 0)} €` +
+    // Projection : consommation au rythme des 7 derniers jours ; l'abonnement (s'il est réglé) s'ajoute au mois entier.
+    $("k-month-why").textContent = `fin de mois ≈ ${eur(mtd + perH * left + (T.monthly ?? 0), 0)} €${T.monthly ? " abonnement compris" : ""}` +
       (prev.length ? ` · ${prevYm.slice(5)}/${prevYm.slice(0, 4)} : ${eur(sum(prev, price), 0)} €` + (prev.length < monthLen(prevYm) ? " (partiel)" : "") : "");
 
     // Barres 30 jours : PAC (HP + HC empilées), contour pointillé = maison estimée.

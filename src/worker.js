@@ -284,7 +284,8 @@ async function series(env, q, house) {
 // ---------- coût de l'électricité (privé) ----------
 // PAC : moyenne horaire des compteurs NIBE « consommé, heure passée » (kWh), appoint compris.
 // Maison : 3 phases (A) × 230 V, estimation en puissance apparente (pas de cos φ).
-// Tarif : PRICE_KWH (base ou heures pleines), PRICE_HC + HC_HOURS ("22-6", "23:30-7:30,12-14"), TIMEZONE.
+// Tarif : PRICE_KWH (TTC, base ou heures pleines), PRICE_HC + HC_HOURS ("22-6", "23:30-7:30,12-14"),
+// MONTHLY_FEE (abonnement TTC par mois, optionnel), TIMEZONE.
 const USE = ["32495", "32496", "32499", "32500"];
 const VOLT = 230;
 function tariff(env) {
@@ -292,7 +293,7 @@ function tariff(env) {
   const hc = num(env.PRICE_HC), hcHours = String(env.HC_HOURS || "22-6");
   const ranges = hc ? hcHours.split(",").map((r) => r.split("-").map((x) => { const [h, m] = x.trim().split(":").map(Number); return h * 60 + (m || 0); }))
     .filter((r) => r.length === 2 && r.every((v) => Number.isFinite(v) && v >= 0 && v <= 1440)) : [];
-  return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges };
+  return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges, monthly: num(env.MONTHLY_FEE) };
 }
 const inRange = (m, [a, b]) => (a <= b ? m >= a && m < b : m >= a || m < b);
 
@@ -322,7 +323,7 @@ async function cost(env) {
   }
   const r3 = (v) => Math.round(v * 1000) / 1000;
   return {
-    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz },
+    tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz, monthly: T.monthly },
     today: local(nowS()).day,
     days: [...days.values()].map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house) })),
   };
