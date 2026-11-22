@@ -1,100 +1,109 @@
-# pac : tableau de suivi pour pompe à chaleur NIBE (myUplink)
+# pac: live dashboard for NIBE heat pumps (myUplink)
 
-Ce tableau montre en direct l'état d'une pompe à chaleur NIBE connectée à myUplink :
-- un schéma de l'installation animé selon la fréquence du compresseur, avec le dégivrage ;
-- le cycle frigorifique, les températures, les degrés-minutes et l'appoint ;
-- la puissance électrique, la chaleur produite, le COP et un bilan sur 14 jours ;
-- des courbes avec une frise temporelle.
+A self-hosted, real-time dashboard for **NIBE heat pumps** connected to **myUplink**.
 
-Le site n'a aucune dépendance (HTML, CSS et SVG à la main). La formule gratuite de myUplink suffit, car l'historique est construit localement.
+![Dashboard](docs/dashboard.png)
 
-Il se déploie au choix :
-- sur **Cloudflare** (Workers + D1 + cron), voir la section A ;
-- sur **une VM ou un serveur** (Node ≥ 22.5 avec SQLite, ou Docker), voir la section B.
+It shows:
+- an installation schematic (outdoor unit, indoor module, water circuits). It is animated in proportion to the compressor frequency and switches to a reversed cycle during defrost;
+- the refrigerant cycle: suction and discharge temperatures, superheat and subcooling;
+- flow and return temperatures against the heating curve, degree-minutes and the electric backup heater;
+- electrical power, heat produced, COP and a 14-day energy balance from the NIBE energy log;
+- charts with a draggable time brush (6 h, 24 h, 7 d, 30 d, all), plus a 30-day outdoor temperature band.
 
-Le même `src/worker.js` sert dans les deux cas.
+| Schematic while running (`?demo=64`) | Phone, defrost (`?demo=defrost`) |
+|---|---|
+| ![Schematic](docs/schematic.png) | ![Phone](docs/mobile.png) |
 
-> Les identifiants de points (`TRACKED` dans `src/worker.js`) ont été vérifiés sur une **VVM 500 + EB101** (F2120). D'autres modèles NIBE peuvent utiliser d'autres numéros. La table `points` contient la liste complète vue par ton installation : adapte `TRACKED` et les `ID` en tête de `site/app.js` si besoin.
+The page has no front-end dependencies: plain HTML, CSS and hand-drawn SVG, with local fonts and a strict CSP. The **free myUplink plan is enough**, because the history is built by the collector itself.
 
-## 1. Accès myUplink (commun aux deux modes)
+You can run it in two ways, both using the same `src/worker.js`:
+- on **Cloudflare** (Workers + D1 + cron trigger), see option A;
+- on **any VM or server** (Node ≥ 22.5 with built-in SQLite, or Docker / Podman), see option B.
 
-1. Va sur https://dev.myuplink.com/apps et crée une application de type **client credentials**. L'URL de callback peut rester vide.
-2. Note le **Client ID** et le **Client Secret**. Ils ne vont **jamais** dans git :
-   - sur Cloudflare, ils deviennent des secrets Wrangler ;
-   - sur une VM, ils vont dans un fichier `.env`, déjà ignoré par git.
+> **Compatibility.** The point IDs (`TRACKED` in `src/worker.js`, `ID` at the top of `site/app.js`) were checked on a **NIBE VVM 500 indoor module with an EB101 outdoor unit** (F2120). Other NIBE models (S-series, F-series, SMO) expose most of the same points, but some numbers may differ. The `points` table stores every point your system reports, so compare against it and adjust the two lists if a value stays empty.
+>
+> The user interface is in French for now. Labels are in `site/index.html` and `site/app.js`.
 
-Le collecteur n'utilise que le scope `READSYSTEM` (lecture seule) et fait environ 3 requêtes toutes les 5 minutes. Le quota de myUplink est de 25 requêtes par minute.
+## 1. myUplink access (both options)
 
-## A. Déploiement Cloudflare
+1. Create an application at https://dev.myuplink.com/apps (client credentials). The callback URL can stay empty.
+2. Keep the **Client ID** and **Client Secret** out of git:
+   - on Cloudflare, store them as Wrangler secrets;
+   - on a VM, put them in a `.env` file, which is already git-ignored.
+
+The collector only uses the `READSYSTEM` scope, which is read-only. It makes about 3 requests every 5 minutes, well under the myUplink quota of 25 requests per minute.
+
+## A. Deploy on Cloudflare
 
 ```sh
-cp wrangler.example.jsonc wrangler.jsonc        # puis éditer le domaine
-npx wrangler d1 create pac                      # copier l'ID dans wrangler.jsonc
+cp wrangler.example.jsonc wrangler.jsonc        # then set your hostname
+npx wrangler d1 create pac                      # paste the database ID into wrangler.jsonc
 npx wrangler d1 migrations apply pac --remote
 npx wrangler secret put MYUPLINK_CLIENT_ID
 npx wrangler secret put MYUPLINK_CLIENT_SECRET
 npx wrangler deploy
 ```
 
-La première collecte arrive dans les 5 minutes.
+The first data point arrives within 5 minutes.
 
-### Protection avec Cloudflare Access (recommandé)
+### Protect it with Cloudflare Access (recommended)
 
-Dans le dashboard, va dans **Zero Trust → Access → Applications → Add → Self-hosted** :
-- **domaine** : ton sous-domaine, chemin vide pour tout couvrir, `/api/*` compris ;
-- **policy** : Allow, `Emails` égal à ton adresse ;
-- **connexion** : *One-time PIN*, un code reçu par e-mail. C'est la méthode intégrée, sans application OAuth à créer. Google ou GitHub sont possibles en option.
+In the Cloudflare dashboard, go to **Zero Trust → Access controls → Applications → Create new application → Self-hosted**:
+- **Destination:** your hostname. Leave the path empty so `/api/*` is covered too.
+- **Policy:** Allow, `Emails` equal to your address.
+- **Login method:** One-time PIN, a code sent by email. It is built in, so there is no OAuth app to create. Google or GitHub also work.
 
-`workers_dev` reste à `false`, sinon l'adresse `*.workers.dev` contournerait Access. Une fois le site protégé, tu peux ajouter `"vars": { "SHOW_HOUSE": "1" }` pour afficher les intensités des phases de la maison (BE1 à BE3).
+Keep `workers_dev: false`, otherwise the `*.workers.dev` URL would bypass Access. Once the site is protected, you can add `"vars": { "SHOW_HOUSE": "1" }` to show the house phase currents (BE1 to BE3).
 
-## B. Déploiement sur une VM ou un serveur
+## B. Run on a VM or server
 
-Avec Node ≥ 22.5 (aucun `npm install` nécessaire) :
+With Node ≥ 22.5 (no `npm install` needed):
 
 ```sh
-cp .env.example .env      # remplir MYUPLINK_CLIENT_ID / SECRET
-npm start                 # http://127.0.0.1:8787, base dans ./data/pac.db
+cp .env.example .env      # fill in MYUPLINK_CLIENT_ID / SECRET
+npm start                 # http://127.0.0.1:8787, data in ./data/pac.db
 ```
 
-Avec Docker ou Podman :
+With Docker or Podman:
 
 ```sh
 cp .env.example .env
-docker compose up -d      # ou : podman compose up -d
+docker compose up -d      # or: podman compose up -d
 ```
 
-`server/node.mjs` assure le même service que Cloudflare :
-- il applique les migrations au démarrage ;
-- il collecte toutes les 5 minutes (`POLL_MINUTES`) ;
-- il sert `site/` avec les en-têtes de `site/_headers` ;
-- il met l'API en cache 60 secondes.
+`server/node.mjs` provides what Cloudflare would:
+- it applies the migrations at startup;
+- it collects every 5 minutes (`POLL_MINUTES`; `0` disables collection);
+- it serves `site/` with the headers from `site/_headers`;
+- it caches API responses for 60 seconds.
 
-Il n'y a **pas d'authentification intégrée** : le serveur écoute sur `127.0.0.1`. Pour y accéder depuis l'extérieur, au choix :
-- `cloudflared tunnel` + Cloudflare Access ;
-- un reverse proxy (Caddy, nginx) avec authentification ;
-- seulement ton VPN ou Tailscale.
+There is **no built-in login**, and the server listens on `127.0.0.1` only. To reach it from outside, use one of:
+- `cloudflared tunnel` with Cloudflare Access;
+- a reverse proxy with authentication (Caddy, nginx);
+- your VPN or Tailscale only.
 
-## API (GET seulement)
+## API (GET only)
 
-| Route | Contenu |
+| Route | Returns |
 |---|---|
-| `/api/now` | Dernières valeurs, compteurs sur 7 jours, alarmes (gravité, titre), état de la collecte |
-| `/api/series?range=24h\|7d\|30d\|30dd\|365d\|all&pids=…` ou `from=&to=` (s UTC) | Courbes agrégées (au plus ~400 points par courbe), 12 points au maximum |
-| `/api/health` | 12 dernières collectes, test de la route d'historique myUplink |
+| `/api/now` | Latest values, 7-day counters, active alarms (severity and title), collector status |
+| `/api/series?range=24h\|7d\|30d\|30dd\|365d\|all&pids=…`, or `from=&to=` (UTC seconds) | Aggregated series, about 400 points per series at most, 12 series at most |
+| `/api/health` | Last 12 collections, myUplink history-route probe |
 
-## Sécurité
+## Security
 
-- Aucun secret n'est stocké dans le code. Le jeton myUplink est mis en cache dans la base, jamais renvoyé par l'API.
-- L'API ne publie ni la liste complète des points, ni les identifiants système et matériel. Les phases de la maison sont masquées sauf avec `SHOW_HOUSE=1`, car elles révèlent la présence des occupants.
-- Sur Cloudflare, chaque IP est limitée à 60 requêtes par minute. Un 429 de myUplink met la collecte en pause selon `RateLimit-Reset`.
-- La page applique une CSP stricte (`site/_headers`) et utilise des polices locales, sans CDN.
-- Les longues périodes sont lues dans `readings_h`, qui contient les agrégats horaires.
+- No secrets live in the code. The myUplink token is cached in the database and never returned by the API.
+- The API does not expose the full point list or the system and device IDs. House phase currents stay hidden unless `SHOW_HOUSE=1`, because they reveal when people are home.
+- On Cloudflare, each IP is limited to 60 requests per minute. A myUplink 429 pauses collection according to `RateLimit-Reset`.
+- The page uses a strict CSP (`site/_headers`), with no third-party scripts, fonts or CDNs.
+- Long ranges read hourly aggregates from `readings_h` instead of the raw readings.
 
-## Divers
+## Notes
 
-- Pour voir le schéma sans attendre que le compresseur tourne, ajoute `?demo=30|64|110|defrost` à l'URL. Cela ne change que l'affichage.
-- L'énergie provient du journal NIBE : 32486 pour la puissance instantanée, 3249x pour les bilans de l'heure passée. Sans ces points, l'estimation de repli est de 40 W par Hz.
-- La route d'historique de myUplink renvoie 403 en formule gratuite : le passé n'est pas importable sans Premium.
-- Ce projet n'est pas affilié à NIBE ni à myUplink.
+- Add `?demo=30|64|110|defrost` to the URL to preview the animated schematic when the compressor is idle. It changes the display only.
+- Energy figures come from the NIBE energy log: point 32486 for instantaneous power, 3249x for last-hour totals. Without them, the fallback estimate is 40 W per Hz.
+- On the free myUplink plan, the history route returns 403, so past data cannot be imported without Premium.
+- This project is not affiliated with NIBE or myUplink.
 
-Licence MIT.
+MIT licence.

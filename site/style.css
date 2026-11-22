@@ -126,3 +126,5 @@ html,body{margin:0}
 .brand .mark{width:40px;height:auto;flex:none}
 .brand .word{color:var(--frost)}
 .brand .word span{color:var(--t-warm)}
+
+[hidden] { display: none !important; }

@@ -1,19 +1,19 @@
-// Copier en wrangler.jsonc, puis remplacer DOMAINE et l'ID D1 (sortie de `npx wrangler d1 create pac`).
+// Copy to wrangler.jsonc, then set your hostname and the D1 ID (from `npx wrangler d1 create pac`).
 {
   "name": "pac",
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "./site", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
-  "routes": [{ "pattern": "pac.DOMAINE.tld", "custom_domain": true }],
-  // Pas d'adresse workers.dev : elle contournerait Cloudflare Access posé sur le domaine.
+  "routes": [{ "pattern": "pac.example.com", "custom_domain": true }],
+  // No workers.dev URL: it would bypass Cloudflare Access on your hostname.
   "workers_dev": false,
-  // Collecte myUplink toutes les 5 min (quota API : 25 req/min ; ~3 req par collecte).
+  // Collect from myUplink every 5 min (API quota: 25 req/min; ~3 requests per run).
   "triggers": { "crons": ["*/5 * * * *"] },
   "d1_databases": [
-    { "binding": "DB", "database_name": "pac", "database_id": "REMPLACER-PAR-L-ID-D1", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "pac", "database_id": "REPLACE-WITH-YOUR-D1-ID", "migrations_dir": "migrations" }
   ],
   "observability": { "enabled": true },
-  // 60 requêtes API par minute et par IP.
+  // 60 API requests per minute per IP.
   "ratelimits": [{ "name": "RL", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }]
-  // "vars": { "SHOW_HOUSE": "1" }  // seulement si le site est protégé (Access)
+  // "vars": { "SHOW_HOUSE": "1" }  // only once the site is protected (Access)
 }

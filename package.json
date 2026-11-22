@@ -2,7 +2,7 @@
   "name": "pac-monitor",
   "private": true,
   "type": "module",
-  "description": "Tableau de suivi d'une pompe à chaleur NIBE via myUplink (Cloudflare Workers + D1, ou Node/SQLite sur une VM).",
+  "description": "Live dashboard for NIBE heat pumps via myUplink (Cloudflare Workers + D1, or Node/SQLite on a VM).",
   "license": "MIT",
   "engines": { "node": ">=22.5" },
   "scripts": {
