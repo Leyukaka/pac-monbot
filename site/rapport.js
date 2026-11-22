@@ -161,7 +161,7 @@
     else setRange(addD(t, 1 - Number(p)), t); });
 
   function load(d0, d1) {
-    const my = ++seq, q = d0 ? `?d0=${d0}&d1=${d1}` : "";
+    const my = ++seq, q = "?v=2" + (d0 ? `&d0=${d0}&d1=${d1}` : ""); // v : change de clé de cache quand le format change
     document.body.classList.add("a-busy");
     fetch(BASE + "/api/analysis" + q, { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((j) => {
       if (my !== seq) return;

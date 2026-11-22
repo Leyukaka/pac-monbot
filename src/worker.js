@@ -112,7 +112,7 @@ export default {
 function cacheKey(url) {
   const k = new URL(url.origin + url.pathname);
   const q = url.searchParams;
-  for (const name of ["range", "pids", "d0", "d1"]) if (q.has(name)) k.searchParams.set(name, q.get(name));
+  for (const name of ["range", "pids", "d0", "d1", "v"]) if (q.has(name)) k.searchParams.set(name, q.get(name));
   const from = Number(q.get("from")), to = Number(q.get("to"));
   if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
     const g = Math.max(60, pickStep(to - from)); // arrondi au pas : même clé pour des fenêtres voisines
