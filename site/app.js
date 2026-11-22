@@ -192,10 +192,16 @@
   const fmtTip = (t) => new Date(t * 1000).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const fmtDay = (t) => new Date(t * 1000).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "UTC" });
   const row = (c, name, v) => `<div><i style="background:${c}"></i>${name}<b>${v}</b></div>`;
+  let tipOwner = null;
+  const hideTip = () => { tipOwner?.querySelector(".hv")?.remove(); tip.hidden = true; tipOwner = null; };
+  addEventListener("scroll", hideTip, { passive: true });
+  // Au toucher, la bulle reste après le doigt levé ; un toucher ailleurs la ferme.
+  document.addEventListener("pointerdown", (e) => { if (tipOwner && !tipOwner.contains(e.target)) hideTip(); });
   function hover(svg, fn) {
     svg._hv = fn;
+    if (tipOwner === svg) hideTip(); // graphique redessiné : l'ancienne bulle porterait des valeurs périmées
     if (svg._hvOn) return; svg._hvOn = true;
-    const hide = () => { svg.querySelector(".hv")?.remove(); tip.hidden = true; };
+    const hide = (e) => { if (e?.pointerType === "touch" && e.type === "pointerleave") return; if (tipOwner === svg) hideTip(); };
     const move = (e) => {
       const m = svg.getScreenCTM(); if (!m || !svg._hv) return hide();
       const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
@@ -205,9 +211,10 @@
       if (r.x != null) g.appendChild(el("line", { x1: r.x, x2: r.x, y1: r.y0, y2: r.y1, class: "hv-line" }));
       if (r.band) g.appendChild(el("rect", { ...r.band, class: "hv-band" }));
       (r.dots || []).forEach((d) => g.appendChild(el("circle", { cx: d.x, cy: d.y, r: 4.5, fill: d.c, class: "hv-dot" })));
-      tip.innerHTML = r.html; tip.hidden = false;
-      const w = tip.offsetWidth, h = tip.offsetHeight;
-      let x = e.clientX + 16, y = e.clientY + 16;
+      tip.innerHTML = r.html; tip.hidden = false; tipOwner = svg;
+      const w = tip.offsetWidth, h = tip.offsetHeight, touch = e.pointerType === "touch";
+      let x = e.clientX + 16, y = touch ? e.clientY - h - 28 : e.clientY + 16; // au-dessus du doigt
+      if (y < 8) y = e.clientY + 28;
       if (x + w > innerWidth - 8) x = Math.max(8, e.clientX - w - 16);
       if (y + h > innerHeight - 8) y = Math.max(8, e.clientY - h - 16);
       tip.style.transform = `translate(${x}px, ${y}px)`;
@@ -359,10 +366,12 @@
   const addDay = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * 86400e3).toISOString().slice(0, 10);
   const eur = (v, d = 2) => fr(v, d);
   const monthLen = (ym) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7), 0)).getUTCDate();
+  let COST = null;
   async function renderCost() {
     const sec = $("cost-sec");
     if (!NOW?.house) { sec.hidden = true; return; }
-    const c = await getJSON("/api/cost").catch(() => null);
+    if (!COST || Date.now() - COST.at > 600e3) COST = { at: Date.now(), c: await getJSON("/api/cost").catch(() => null) };
+    const c = COST.c;
     if (!c || !c.days) { sec.hidden = true; return; }
     sec.hidden = false;
     const T = c.tariff, pHC = T.hc ?? T.base;
@@ -370,7 +379,7 @@
     const price = (d) => (d ? d.hp * T.base + d.hc * pHC : null);
     const kwh = (d) => (d ? d.hp + d.hc : null);
     // Maison : compteur Smarty (Leneda) s'il couvre au moins autant d'heures que l'estimation 3 phases × 230 V.
-    const meter = (d) => !!(d && d.gridQ && d.gridQ / 4 >= d.houseHours - 1);
+    const meter = (d) => !!(d && d.gridQ >= 92);
     const houseKwh = (d) => (meter(d) ? d.grid : d && d.houseHours ? d.house : null);
     const overEur = (d) => (meter(d) && T.overrun ? (d.over ?? 0) * T.overrun : 0);
     const houseEur = (d) => { const k = houseKwh(d); return k == null ? null : k * (kwh(d) > 0 ? price(d) / kwh(d) : T.base) + overEur(d); };
@@ -399,7 +408,7 @@
     if (hm.length) {
       const peak = Math.max(0, ...hm.filter(meter).map((d) => d.peak ?? 0)), ov = sum(hm, overEur);
       $("k-house").textContent = eur(sum(hm, houseEur));
-      $("k-house-why").textContent = `${fr(sum(hm, houseKwh), 0)} kWh` + (anyMeter ? "" : " (estimation)") +
+      $("k-house-why").textContent = `${fr(sum(hm, houseKwh), 0)} kWh` + (hm.every(meter) ? "" : hm.some(meter) ? " (en partie estimé)" : " (estimation)") +
         (peak ? ` · pic ${fr(peak, 1)} kW` + (T.pref ? ` / Pref ${fr(T.pref, 0)} kW` : "") : "") + (ov > 0 ? ` · dépassement ${eur(ov)} €` : "");
     }
     // Projection : consommation au rythme des 7 derniers jours ; l'abonnement (s'il est réglé) s'ajoute au mois entier.
@@ -438,7 +447,7 @@
             (houseKwh(d) > 0 && d.hours >= (meter(d) ? d.gridQ / 4 : d.houseHours) - 1 ? row("var(--mist)", "part PAC", fr((100 * kwh(d)) / houseKwh(d), 0) + " %") : "") : "") +
           (meter(d) && d.peak != null ? row("var(--frost)", "pic 15 min", fr(d.peak, 1) + " kW" + (T.pref ? ` · Pref ${fr(T.pref, 0)}` : "")) : "") +
           (overEur(d) > 0 ? row("var(--t-hot)", "dépassement", `${fr(d.over, 2)} kWh · ${eur(overEur(d))} €`) : "") +
-          (d.gridQ && !meter(d) ? row("var(--mist)", "compteur", `${fr(d.gridQ / 4, 0)} h publiées`) : "") };
+          (d.gridQ && !meter(d) ? row("var(--mist)", "compteur", `${fr(d.gridQ / 4, 1)} h publiées sur 24`) : "") };
     });
   }
 

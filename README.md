@@ -86,7 +86,13 @@ Use all-in prices (energy, network, taxes, VAT). Per-kWh amounts exclude fixed f
 3. Store the three values as secrets: `npx wrangler secret put LENEDA_API_KEY`, then `LENEDA_ENERGY_ID` and `LENEDA_POD` (or put them in `.env` on a VM).
 4. Apply the new migration: `npx wrangler d1 migrations apply pac --remote`.
 
-The collector calls Leneda at most once an hour and re-reads the last 3 days, since the data is published with a delay. The first call loads the last 62 days. `/api/health` shows the last Leneda HTTP status. While a day is not fully published, the house figure for that day falls back to the phase estimate. The whole-house figure is an estimate: phase currents × 230 V, so apparent power without power factor. `/api/cost` only answers under `/prive/` (or with `SHOW_HOUSE=1`).
+**Leneda blocks requests from outside Luxembourg** (tested: Cloudflare Workers and an OVH server in France get 403 even with a wrong key, while a Luxembourg connection gets 401). So the data is fetched from a machine in Luxembourg and pushed to the Worker:
+
+1. Generate a random token and store it as a Worker secret: `npx wrangler secret put INGEST_TOKEN`.
+2. On the Luxembourg machine, create `leneda.env` (git-ignored) with `LENEDA_API_KEY`, `LENEDA_ENERGY_ID`, `LENEDA_POD`, `PUSH_URL=https://<your host>/api/ingest/grid` and the same `INGEST_TOKEN`.
+3. Run `node --env-file=leneda.env server/leneda-push.mjs` every hour (cron, Windows Task Scheduler). The first run loads 62 days; later runs re-read the last 3 days, so a machine that was off catches up.
+
+`POST /api/ingest/grid` only writes: it checks the token in constant time, accepts at most 10,000 quarter-hours in kW, and returns no data. When `INGEST_TOKEN` is set, the Worker stops calling Leneda itself. If you are lucky enough that Leneda accepts your server, set only the three Leneda secrets and the Worker collects hourly on its own. Either way, a day that is not fully published yet falls back to the phase estimate.
 
 Keep `workers_dev: false`, otherwise the `*.workers.dev` URL would bypass Access.
 

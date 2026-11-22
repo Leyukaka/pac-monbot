@@ -63,6 +63,8 @@ export default {
       }
     }
     if (!path.startsWith("/api/")) return env.ASSETS.fetch(req);
+    // Réception des quarts d'heure Leneda poussés depuis une machine au Luxembourg (Leneda refuse Cloudflare).
+    if (path === "/api/ingest/grid") return ingestGrid(req, env);
     if (req.method !== "GET") return json({ error: "méthode non autorisée" }, 405);
 
     // Limitation de débit par IP (binding Workers Rate Limiting).
@@ -179,34 +181,81 @@ async function collect(env) {
 
 // ---------- Leneda (Luxembourg) : compteur Smarty, quarts d'heure ----------
 // Secrets LENEDA_API_KEY, LENEDA_ENERGY_ID, LENEDA_POD (code du point de comptage) ; LENEDA_BASE optionnel.
-// Une requête par heure au plus ; les 3 derniers jours sont relus (données publiées avec retard, versions corrigées).
+// Au plus une passe par heure : depuis le dernier quart d'heure moins 6 h ; une fois par jour, relecture des 3 derniers
+// jours (données publiées avec retard, versions corrigées). Premier chargement : 62 jours, par tranches de 7 jours.
 const LENEDA_OBIS = "1-1:1.29.0";
 async function collectLeneda(env) {
-  if (!env.LENEDA_API_KEY || !env.LENEDA_ENERGY_ID || !env.LENEDA_POD) return;
+  if (!env.LENEDA_API_KEY || !env.LENEDA_ENERGY_ID || !env.LENEDA_POD || env.INGEST_TOKEN) return;
   const ts = nowS();
   if ((await kvGet(env, "leneda_ts", 0)) > ts - 3540) return;
+  // Le verrou horaire est posé avant l'appel : une erreur réseau ne relance pas toutes les 5 min.
+  await kvPut(env, "leneda_ts", ts).run();
+  const status = (o) => kvPut(env, "leneda_status", JSON.stringify({ ts, ...o })).run();
   const last = (await env.DB.prepare("SELECT MAX(ts) AS t FROM grid").first())?.t;
-  const from = Math.max(ts - 62 * 86400, last ? last - 3 * 86400 : 0);
+  const full = (await kvGet(env, "leneda_full_ts", 0)) < ts - 86400;
+  let from = last ? last - (full ? 3 * 86400 : 6 * 3600) : ts - 62 * 86400;
+  from = Math.max(from, ts - 62 * 86400);
   const iso = (t) => new Date(t * 1000).toISOString().slice(0, 19) + "Z";
   const base = env.LENEDA_BASE || "https://api.leneda.eu/api";
-  const url = `${base}/metering-points/${encodeURIComponent(env.LENEDA_POD)}/time-series?obisCode=${encodeURIComponent(LENEDA_OBIS)}` +
-    `&startDateTime=${encodeURIComponent(iso(from))}&endDateTime=${encodeURIComponent(iso(ts))}`;
-  const r = await fetch(url, { headers: { "X-API-KEY": env.LENEDA_API_KEY, "X-ENERGY-ID": env.LENEDA_ENERGY_ID, Accept: "application/json" } });
-  const stmts = [kvPut(env, "leneda_ts", ts)];
-  if (!r.ok) {
-    stmts.push(kvPut(env, "leneda_status", JSON.stringify({ ts, status: r.status })));
-    await env.DB.batch(stmts);
-    return;
+  let n = 0;
+  for (let a = from; a < ts; a += 7 * 86400) {
+    const b = Math.min(ts, a + 7 * 86400);
+    const url = `${base}/metering-points/${encodeURIComponent(env.LENEDA_POD)}/time-series?obisCode=${encodeURIComponent(LENEDA_OBIS)}` +
+      `&startDateTime=${encodeURIComponent(iso(a))}&endDateTime=${encodeURIComponent(iso(b))}`;
+    let r;
+    try {
+      r = await fetch(url, { headers: { "X-API-KEY": env.LENEDA_API_KEY, "X-ENERGY-ID": env.LENEDA_ENERGY_ID, Accept: "application/json" },
+        signal: AbortSignal.timeout(20000) });
+    } catch (e) { await status({ status: "réseau", n }); return; }
+    if (!r.ok) {
+      // 403 : refus de la clé (accès au POD) ou blocage géographique. Une clé bidon tranche : 401 = la clé est en cause.
+      let probe = null;
+      if (r.status === 403) probe = await fetch(url, { headers: { "X-API-KEY": "invalid", "X-ENERGY-ID": "invalid" }, signal: AbortSignal.timeout(10000) })
+        .then((x) => x.status).catch(() => "réseau");
+      await status({ status: r.status, n, ...(probe != null ? { probe } : {}) });
+      return;
+    }
+    const j = await r.json().catch(() => null);
+    if (!j || !Array.isArray(j.items)) { await status({ status: "format", n }); return; }
+    // Le calcul suppose des kW moyens par quart d'heure : tout autre format est refusé plutôt que mal compté.
+    const unit = String(j.unit ?? "kW"), step = String(j.intervalLength ?? "PT15M");
+    if (unit.toLowerCase() !== "kw" || step !== "PT15M") { await status({ status: "format", unit, interval: step, n }); return; }
+    const rows = j.items.filter((it) => typeof it.value === "number" && Number.isFinite(it.value) && it.startedAt)
+      .map((it) => [Math.floor(Date.parse(it.startedAt) / 1000), it.value]).filter(([t]) => Number.isFinite(t));
+    // Un seul statement par tranche (json_each) : pas de limite de paramètres liés.
+    if (rows.length) await env.DB.prepare(
+      "INSERT INTO grid (ts, kw) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?) WHERE true " +
+      "ON CONFLICT(ts) DO UPDATE SET kw = excluded.kw").bind(JSON.stringify(rows)).run();
+    n += rows.length;
   }
-  const j = await r.json();
-  const rows = (j.items || []).map((it) => [Math.floor(Date.parse(it.startedAt) / 1000), Number(it.value)])
-    .filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v));
-  // Un seul statement (json_each) : pas de limite de paramètres ni de requêtes par invocation.
-  if (rows.length) stmts.push(env.DB.prepare(
+  if (full) await kvPut(env, "leneda_full_ts", ts).run();
+  await status({ status: !last && !n ? "vide" : 200, n });
+}
+
+// POST /api/ingest/grid, Authorization: Bearer INGEST_TOKEN. Corps : { unit: "kW", interval: "PT15M", items: [[ts, kw], ...] }.
+// Écriture seule : la route ne renvoie aucune donnée. Jeton comparé en temps constant.
+async function ingestGrid(req, env) {
+  if (req.method !== "POST") return json({ error: "méthode non autorisée" }, 405);
+  if (!env.INGEST_TOKEN) return json({ error: "inconnu" }, 404);
+  const got = new TextEncoder().encode(req.headers.get("authorization") || "");
+  const want = new TextEncoder().encode("Bearer " + env.INGEST_TOKEN);
+  let diff = got.length ^ want.length;
+  for (let i = 0; i < want.length; i++) diff |= want[i] ^ (got[i] ?? 0);
+  if (diff) return json({ error: "refusé" }, 401);
+  if (Number(req.headers.get("content-length") || 0) > 1_000_000) return json({ error: "trop gros" }, 413);
+  const j = await req.json().catch(() => null);
+  if (!j || !Array.isArray(j.items) || j.items.length > 10_000) return json({ error: "format" }, 400);
+  if (String(j.unit ?? "").toLowerCase() !== "kw" || j.interval !== "PT15M") return json({ error: "unité ou pas de temps inattendus" }, 400);
+  const now = nowS();
+  const rows = j.items.filter((r) => Array.isArray(r) && Number.isInteger(r[0]) && r[0] % 900 === 0 && r[0] > now - 400 * 86400 && r[0] < now + 3600
+    && typeof r[1] === "number" && Number.isFinite(r[1]) && r[1] >= 0 && r[1] < 1000).map((r) => [r[0], r[1]]);
+  // Nouvelles données compteur : le coût mis en cache est recalculé à la prochaine demande.
+  const stmts = [kvPut(env, "leneda_status", JSON.stringify({ ts: now, status: 200, n: rows.length, via: "push" })), env.DB.prepare("DELETE FROM kv WHERE k = 'cost_cache'")];
+  if (rows.length) stmts.unshift(env.DB.prepare(
     "INSERT INTO grid (ts, kw) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?) WHERE true " +
     "ON CONFLICT(ts) DO UPDATE SET kw = excluded.kw").bind(JSON.stringify(rows)));
-  stmts.push(kvPut(env, "leneda_status", JSON.stringify({ ts, status: r.status, n: rows.length, unit: j.unit ?? null, interval: j.intervalLength ?? null })));
   await env.DB.batch(stmts);
+  return json({ ok: true, n: rows.length, rejected: j.items.length - rows.length });
 }
 
 function pickAlarm(a) {
@@ -325,17 +374,31 @@ const VOLT = 230;
 function tariff(env) {
   const num = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n > 0 ? n : null; };
   const hc = num(env.PRICE_HC), hcHours = String(env.HC_HOURS || "22-6");
-  const ranges = hc ? hcHours.split(",").map((r) => r.split("-").map((x) => { const [h, m] = x.trim().split(":").map(Number); return h * 60 + (m || 0); }))
+  const ranges = hc ? hcHours.split(",").map((r) => r.split("-").map((x) => { if (!/^\s*\d{1,2}(:\d{2})?\s*$/.test(x)) return NaN; const [h, m] = x.trim().split(":").map(Number); return h * 60 + (m || 0); }))
     .filter((r) => r.length === 2 && r.every((v) => Number.isFinite(v) && v >= 0 && v <= 1440)) : [];
   return { tz: env.TIMEZONE || "Europe/Paris", base: num(env.PRICE_KWH) ?? 0.1952, hc: ranges.length ? hc : null, hcHours: ranges.length ? hcHours : null, ranges, monthly: num(env.MONTHLY_FEE),
     pref: num(env.PREF_KW), overrun: num(env.OVERRUN_KWH) };
 }
 const inRange = (m, [a, b]) => (a <= b ? m >= a && m < b : m >= a || m < b);
 
+// Le calcul lit ~16 000 lignes : résultat gardé en base une heure (clé = tarif), recalculé à la demande.
 async function cost(env) {
-  const T = tariff(env);
+  const T = tariff(env), key = JSON.stringify(T);
+  const c = JSON.parse(await kvGet(env, "cost_cache", "null"));
+  if (c && c.key === key && c.ts > nowS() - 3600) return c.data;
+  const data = await costCompute(env, T);
+  await kvPut(env, "cost_cache", JSON.stringify({ ts: nowS(), key, data })).run();
+  return data;
+}
+
+async function costCompute(env, T) {
   const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: T.tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  const local = (ts) => { const p = Object.fromEntries(fmt.formatToParts(new Date(ts * 1000)).map((x) => [x.type, x.value])); return { day: `${p.year}-${p.month}-${p.day}`, min: Number(p.hour) * 60 + Number(p.minute) }; };
+  const lc = new Map();
+  const local = (ts) => {
+    let l = lc.get(ts); if (l) return l;
+    const p = Object.fromEntries(fmt.formatToParts(new Date(ts * 1000)).map((x) => [x.type, x.value]));
+    l = { day: `${p.year}-${p.month}-${p.day}`, min: Number(p.hour) * 60 + Number(p.minute) }; lc.set(ts, l); return l;
+  };
   const pids = [...USE, ...HOUSE];
   const since = Math.floor((nowS() - 62 * 86400) / 3600) * 3600;
   const rows = (await env.DB.prepare(`SELECT ts, pid, a FROM readings_h WHERE ts >= ? AND pid IN (${pids.map(() => "?").join(",")})`)
@@ -343,8 +406,9 @@ async function cost(env) {
   const hours = new Map();
   for (const r of rows) {
     let h = hours.get(r.ts);
-    if (!h) hours.set(r.ts, (h = { pac: null, amps: 0, ph: 0 }));
-    if (HOUSE.has(r.pid)) { h.amps += r.a; h.ph++; } else h.pac = (h.pac ?? 0) + r.a;
+    if (!h) hours.set(r.ts, (h = { pac: null, amps: 0, ph: 0, w: 1 }));
+    // Heure en cours : comptée au prorata du temps écoulé, sinon elle pèserait une heure pleine.
+    if (HOUSE.has(r.pid)) { h.amps += r.a; h.ph++; h.w = Math.min(1, Math.max(0, nowS() - r.ts) / 3600); } else h.pac = (h.pac ?? 0) + r.a;
   }
   const days = new Map();
   for (const ts of [...hours.keys()].sort((a, b) => a - b)) {
@@ -354,14 +418,13 @@ async function cost(env) {
     // Part en heures creuses, sondée à :15 et :45 (tranches d'une demi-heure).
     const f = T.hc ? [15, 45].filter((m) => T.ranges.some((r) => inRange((min + m) % 1440, r))).length / 2 : 0;
     if (h.pac != null) { d.hp += h.pac * (1 - f); d.hc += h.pac * f; d.hours++; }
-    if (h.ph === 3) { d.house += (h.amps * VOLT) / 1000; d.houseHours++; }
+    if (h.ph === 3) { d.house += (h.amps * VOLT * h.w) / 1000; d.houseHours += h.w; }
   }
   // Compteur (Leneda) : kWh = kW moyen × 0,25 h ; dépassement = part au-delà de Pref, quart d'heure par quart d'heure.
-  const grid = (await env.DB.prepare("SELECT ts, kw FROM grid WHERE ts >= ?").bind(since).all()).results;
-  const loc = new Map();
+  // Table absente (migration 0003 pas encore appliquée) : pas de données compteur, le reste fonctionne.
+  const grid = env.LENEDA_POD ? (await env.DB.prepare("SELECT ts, kw FROM grid WHERE ts >= ?").bind(since).all().catch(() => ({ results: [] }))).results : [];
   for (const q of grid) {
-    const h = Math.floor(q.ts / 3600) * 3600;
-    let l = loc.get(h); if (!l) loc.set(h, (l = local(h)));
+    const l = local(Math.floor(q.ts / 3600) * 3600);
     let d = days.get(l.day);
     if (!d) days.set(l.day, (d = { d: l.day, hp: 0, hc: 0, hours: 0, house: 0, houseHours: 0 }));
     d.grid = (d.grid ?? 0) + q.kw * 0.25; d.gridQ = (d.gridQ ?? 0) + 1;
@@ -372,16 +435,16 @@ async function cost(env) {
   return {
     tariff: { base: T.base, hc: T.hc, hcHours: T.hcHours, tz: T.tz, monthly: T.monthly, pref: T.pref, overrun: T.overrun },
     today: local(nowS()).day,
-    days: [...days.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house),
+    days: [...days.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((d) => ({ ...d, hp: r3(d.hp), hc: r3(d.hc), house: r3(d.house), houseHours: r3(d.houseHours),
       ...(d.gridQ ? { grid: r3(d.grid), over: r3(d.over ?? 0), peak: r3(d.peak) } : {}) })),
   };
 }
 
-async function health(env) {
+async function health(env, _q, house) {
   const polls = (await env.DB.prepare("SELECT ts, ok, n FROM polls ORDER BY ts DESC LIMIT 12").all()).results;
   const hp = JSON.parse(await kvGet(env, "hist_probe", "null"));
   const ln = JSON.parse(await kvGet(env, "leneda_status", "null"));
-  return { polls, historyRoute: hp ? { status: hp.status, n: hp.n } : null, leneda: ln ? { ts: ln.ts, status: ln.status, n: ln.n ?? null } : null };
+  return { polls, historyRoute: hp ? { status: hp.status, n: hp.n } : null, ...(house ? { leneda: ln ? { ts: ln.ts, status: ln.status, n: ln.n ?? null, probe: ln.probe ?? null } : null } : {}) };
 }
 
 // ---------- petits outils ----------

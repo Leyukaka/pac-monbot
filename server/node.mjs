@@ -107,7 +107,14 @@ const env = { ...process.env, DB, ASSETS };
 // ---------- HTTP ----------
 createServer(async (q, s) => {
   try {
-    const req = new Request(`http://${q.headers.host || "localhost"}${q.url}`, { method: q.method, headers: q.headers });
+    // Corps lu seulement pour POST (route d'envoi Leneda), plafonné à 1 Mo.
+    let body;
+    if (q.method === "POST") {
+      const parts = []; let size = 0;
+      for await (const c of q) { size += c.length; if (size > 1_000_000) { s.writeHead(413).end("too large"); return; } parts.push(c); }
+      body = Buffer.concat(parts);
+    }
+    const req = new Request(`http://${q.headers.host || "localhost"}${q.url}`, { method: q.method, headers: q.headers, body });
     const res = await worker.fetch(req, env, { waitUntil: (p) => p.catch(() => {}) });
     s.writeHead(res.status, Object.fromEntries(res.headers));
     s.end(Buffer.from(await res.arrayBuffer()));
