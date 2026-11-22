@@ -293,40 +293,40 @@
     if (!svg._hv) { svg._hv = 1; hover(svg, (p) => svg._fn?.(p)); }
   }
 
-  // Offres du marché : comparateur officiel ILR Calculix (www.calculix.lu), relevé du 22/11/2026, réseau Creos, 12 000 kWh/an,
-  // profil ménage, remises nouveaux clients exclues. e = composante énergie HT €/kWh, f = frais fixes fournisseur HT €/an.
-  // dyn : prix variable ; « bands » = même grille horaire que naturstroum home drive (+ écart HT), sinon moyenne Calculix (indicatif).
-  const MARKET = [
-    { s: "SUDenergie", n: "Mäi Stroum smart", e: 0.106975, f: 42, dyn: "spot", calc: 1874.66 },
-    { s: "SUDenergie", n: "mäi Stroum", e: 0.1125, f: 42, calc: 1946.27 },
-    { s: "Enovos", n: "fix 3 naturstroum home mono 2027-01", e: 0.11975, f: 48, calc: 2046.71, note: "prix garanti jusqu'au 31/12/2029" },
-    { s: "Sudstroum", n: "TERRA", e: 0.1229, f: 45, calc: 2084.29 },
-    { s: "Enovos", n: "fix 3 nova naturstroum home mono 2027-01", e: 0.12325, f: 48, calc: 2092.07, note: "prix garanti jusqu'au 31/12/2029" },
-    { s: "Sudstroum", n: "TERRA INVEST", e: 0.1269, f: 45, calc: 2136.13 },
-    { s: "Enovos", n: "naturstroum home drive", f: 48, dyn: "bands", add: 0, calc: 2156.75, mine: true },
-    { s: "Enovos", n: "nova naturstroum home drive", f: 48, dyn: "bands", add: 0.0035, calc: 2202.11 },
-    { s: "Enovos", n: "naturstroum home", e: 0.13213, f: 48, calc: 2207.15 },
-    { s: "Energy Revolt", n: "BEE FLEXIBLE", e: 0.133337, f: 42, dyn: "spot", calc: 2216.31 },
-    { s: "Enovos", n: "nova naturstroum", e: 0.13563, f: 48, calc: 2252.51 },
-    { s: "Energy Revolt", n: "BEE REVOLT", e: 0.138, f: 42, calc: 2276.75 },
-  ];
+  // Offres du marché : fichier daté /data/calculix.json (relevé du comparateur officiel ILR Calculix, mis à jour à la main
+  // dans le repo). Prix fixe ou variable : prix énergie HT du fichier. Offre à tranches horaires : sa grille appliquée
+  // à chaque quart d'heure réel du compteur (Leneda). Réseau, taxes, TVA : ceux du fichier ; puissance de référence : la tienne.
+  let MK = null;
+  fetch("/data/calculix.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).then((j) => { MK = j; if (M) renderMarket(offer(M.rows, M.days, T.shared, (r) => r.price, T.monthly)); }).catch(() => {});
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
+  const parseBands = (s) => { const out = {};
+    for (const part of String(s || "").split(";")) { const m = part.trim().match(/^(wd|we|all)\s*:\s*(.+)$/); if (!m) return null;
+      out[m[1]] = m[2].split(",").map((x) => x.trim().match(/^(\d+)-(\d+)=([\d.]+)$/)).map((x) => (x ? [+x[1], +x[2], +x[3]] : null)); }
+    return out; };
+  const bandAt = (B, we, h) => ((we ? B.we : B.wd) || B.all || []).find((x) => x && h >= x[0] && h < x[1])?.[2];
   function renderMarket(cur) {
-    const vat = T.vat ?? 0.08, per = ((T.tax ?? 0) + (T.comp ?? 0) + (T.net ?? 0)) * (1 + vat), pref = FIX[T.pref] ? T.pref : 7;
-    const monthly = (f) => (f / 12 + FIX[pref] + METER) * (1 + vat);
-    const rows = MARKET.map((o) => {
-      const price = o.dyn === "bands" ? (r) => r.price + o.add * (1 + vat) : () => o.e * (1 + vat) + per;
-      // Ton offre : ton fixe réel (remises comprises, ex. Remise Connect) ; les autres : grille Calculix sans remise.
-      return { o, r: offer(M.rows, M.days, T.shared, price, o.mine && T.monthly ? T.monthly : monthly(o.f)) };
+    if (!MK || !MK.offers) { $("mk-table").innerHTML = ""; $("mk-why").textContent = tr("Données Calculix indisponibles."); return; }
+    const N = MK.network, X = MK.taxes, vat = X.vat, pref = N.fixedMonthlyByPref[T.pref] != null ? T.pref : 7;
+    const perKwh = (e) => (e + X.compensationKwh + X.electricityTaxKwh + N.kwh) * (1 + vat);
+    const monthly = (f) => (f / 12 + N.fixedMonthlyByPref[pref] + N.meteringMonthly) * (1 + vat);
+    const rows = MK.offers.map((o) => {
+      const B = o.type === "bands" ? parseBands(o.bands) : null;
+      const price = B ? (r) => perKwh(bandAt(B, r.we, r.h) ?? o.energyKwh) : () => perKwh(o.energyKwh);
+      // Ton offre = celle dont la grille redonne exactement tes prix horaires : elle garde ton fixe réel (remises comprises).
+      const mine = !!B && [false, true].every((we) => [...Array(24)].every((_, h) => Math.abs(perKwh(bandAt(B, we, h)) - T.prices[we ? "we" : "wd"][h]) < 1e-4));
+      return { o, mine, r: offer(M.rows, M.days, T.shared, price, mine && T.monthly ? T.monthly : monthly(o.fixedYear)) };
     }).sort((a, b) => a.r.year - b.r.year);
     const head = ["Fournisseur", "Offre", "Énergie HT c€/kWh", "Fixe fournisseur HT €/an", "Ta conso, 12 mois", "Écart", "Calculix 12 000 kWh"];
-    $("mk-table").innerHTML = `<thead><tr>${head.map((h) => `<th>${tr(h)}</th>`).join("")}</tr></thead><tbody>` + rows.map(({ o, r }) => {
+    $("mk-table").innerHTML = `<thead><tr>${head.map((h) => `<th>${tr(h)}</th>`).join("")}</tr></thead><tbody>` + rows.map(({ o, mine, r }) => {
       const d = r.year - cur.year, cls = Math.abs(d) < 1 ? "" : d < 0 ? "pos" : "neg";
-      const kind = o.dyn === "spot" ? tr("variable (marché)") : o.dyn === "bands" ? tr("tranches horaires") : tr("prix fixe");
-      return `<tr${o.mine ? ' class="mk-mine"' : ""}><td>${o.s}</td><td>${o.n}${o.mine ? " · " + tr("ton offre") : ""}<br><span class="label">${kind}${o.note ? " · " + tr(o.note) : ""}</span></td>` +
-        `<td>${o.dyn === "bands" ? tr("grille") + (o.add ? ` +${fr(o.add * 100, 2)}` : "") : fr(o.e * 100, 3)}${o.dyn === "spot" ? "*" : ""}</td><td>${fr(o.f, 0)}</td>` +
-        `<td>${fr(r.year, 0)} €</td><td class="${cls}">${Math.abs(d) < 1 ? "-" : (d > 0 ? "+" : "−") + fr(Math.abs(d), 0) + " €"}</td><td>${fr(o.calc, 0)} €</td></tr>`;
+      const kind = o.type === "spot" ? tr("variable (marché)") : o.type === "bands" ? tr("tranches horaires") : tr("prix fixe");
+      return `<tr${mine ? ' class="mk-mine"' : ""}><td>${esc(o.supplier)}</td><td>${esc(o.name)}${mine ? " · " + tr("ton offre") : ""}<br><span class="label">${kind}${o.note ? " · " + esc(tr(o.note)) : ""}</span></td>` +
+        `<td>${o.type === "bands" ? tr("grille") : fr(o.energyKwh * 100, 3)}${o.type === "spot" ? "*" : ""}</td><td>${fr(o.fixedYear, 0)}</td>` +
+        `<td>${fr(r.year, 0)} €</td><td class="${cls}">${Math.abs(d) < 1 ? "-" : (d > 0 ? "+" : "−") + fr(Math.abs(d), 0) + " €"}</td><td>${fr(o.calculixTotal, 0)} €</td></tr>`;
     }).join("") + "</tbody>";
-    $("mk-why").textContent = tr("Source : comparateur officiel de l'ILR (calculix.lu), relevé le 22/11/2026 pour le réseau Creos et 12 000 kWh/an, remises de bienvenue exclues. Chaque offre est recalculée sur ta consommation réelle, quart d'heure par quart d'heure, avec le même réseau Creos, la même puissance de référence et le même partage.") + " " +
+    const date = new Date(MK.date + "T12:00:00Z").toLocaleDateString(LOC, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+    $("mk-date").textContent = tr("comparateur ILR Calculix, relevé du {d}", { d: date });
+    $("mk-why").textContent = tr("Source : comparateur officiel de l'ILR (calculix.lu), relevé le {d} pour le réseau Creos et 12 000 kWh/an, remises de bienvenue exclues. Chaque offre est recalculée sur ta consommation réelle (compteur Leneda), quart d'heure par quart d'heure, avec ta puissance de référence et ton partage.", { d: date }) + " " +
       tr("* Prix variable : moyenne Calculix sur un profil ménage, indicative ; le vrai coût dépend des prix du marché à chaque heure.") + " " +
       tr("La colonne Calculix est leur total pour 12 000 kWh avec un profil ménage type, pour vérifier l'ordre de grandeur.") + " " + tr("Ton offre garde ton fixe réel, remises comprises ; les autres offres sont comptées sans remise particulière.");
   }

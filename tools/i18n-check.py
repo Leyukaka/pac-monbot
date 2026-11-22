@@ -23,9 +23,9 @@ class P(HTMLParser):
         if tag in ("script", "style"): s.skip -= 1
     def handle_data(s, d):
         if not s.skip: add(d)
-for f in ("index.html", "analyse.html", "couts.html"):
+for f in ("index.html", "analyse.html", "couts.html", "calculateur.html"):
     P().feed(open(f"{root}/{f}", encoding="utf-8").read())
-for f, fn in (("app.js", "t"), ("rapport.js", "tr"), ("couts.js", "tr"), ("i18n.js", "t"), ("theme.js", "t")):
+for f, fn in (("app.js", "t"), ("rapport.js", "tr"), ("couts.js", "tr"), ("calculateur.js", "tr"), ("i18n.js", "t"), ("theme.js", "t")):
     src = open(f"{root}/{f}", encoding="utf-8").read()
     for m in re.finditer(r'\b' + fn + r'\(\s*"((?:[^"\\]|\\.)*)"', src): add(m.group(1))
     for m in re.finditer(r'\b' + fn + r'\(\s*([a-z]+ > 1 \? )?"((?:[^"\\]|\\.)*)" : "((?:[^"\\]|\\.)*)"', src):

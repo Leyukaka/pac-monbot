@@ -1,0 +1,64 @@
+/* PAC/POWER · calculateur public. Uniquement les variables de style.css (thèmes). Les classes de champ .c-field / .c-check / .c-err
+   reprennent celles de couts.css (page privée, non chargée ici) pour que themes.css les habille de la même façon. */
+
+/* saisies (copie de couts.css) */
+.c-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 12px}
+.c-field{display:flex;flex-direction:column;justify-content:flex-start;gap:6px;min-width:0}
+.c-field .label{letter-spacing:.08em}
+.c-field input:not([type="range"]),.c-field select{font-family:var(--f-data);font-size:14px;color:var(--frost);background:var(--ink);border:1px solid var(--rule);border-radius:0;padding:7px 8px;width:100%;min-width:0}
+.c-field input:focus-visible,.c-field select:focus-visible{outline:2px solid var(--t-cold);outline-offset:1px;border-color:var(--t-cold)}
+.c-field input[aria-invalid="true"]{border-color:var(--crit)}
+.c-field .tabs{flex-wrap:wrap}
+.c-field .tabs button:disabled{opacity:.45;cursor:not-allowed}
+.c-err{margin:0;font-size:12px;color:var(--crit)}
+.c-check{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;width:fit-content;max-width:100%;margin-top:14px}
+.c-check input{width:16px;height:16px;margin:0;flex:none;accent-color:var(--t-warm);cursor:pointer}
+
+/* calculateur */
+.k-form{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1.2fr);gap:18px 22px}
+.k-form .why{margin:0;font-size:12px}
+.k-kwh input:not([type="range"]){font-family:var(--f-display);font-weight:800;font-size:30px;line-height:1;padding:6px 10px}
+.k-range-l{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;color:var(--mist);margin-top:6px}
+.k-range-l b{font-family:var(--f-data);font-size:14px;color:var(--frost);font-weight:600}
+#k-share{width:100%;margin:2px 0;accent-color:var(--t-warm);cursor:pointer}
+#k-share:disabled{opacity:.45;cursor:not-allowed}
+
+/* meilleure offre */
+.k-best{gap:6px;border-left:3px solid var(--ok)}
+.k-best-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+.k-best-v{font-family:var(--f-display);font-weight:800;font-size:clamp(44px,7vw,64px);line-height:.95;color:var(--ok)}
+.k-best-u{font-family:var(--f-data);font-size:13px;color:var(--mist)}
+.k-best-n{margin:0;font-size:16px;line-height:1.4;overflow-wrap:anywhere}
+.k-best-n strong{font-weight:600}
+.k-best-n .label{margin-left:6px;white-space:nowrap}
+.k-best .why{margin:2px 0 0}
+
+/* tableau */
+.a-table td .label{display:inline-block;margin-top:2px;letter-spacing:.06em}
+.a-table td b{font-weight:600}
+.a-table tr.k-top td{background:color-mix(in oklab,var(--ok) 10%,transparent)}
+.a-table .k-kind{color:var(--mist)}
+.a-sec .k-foot{margin:0;font-size:12px}
+
+/* graphique en barres horizontales */
+#k-chart{touch-action:pan-y;cursor:crosshair;max-width:100%}
+.k-bar{fill:var(--t-cold);opacity:.85}
+.k-bar-spot{fill:var(--t-warm)}
+.k-bar-best{fill:var(--ok);opacity:1}
+.k-bar-l{font-family:var(--f-body);font-size:12px;fill:var(--frost)}
+.k-bar-v{fill:var(--frost)}
+
+/* source */
+.k-src{margin:0;padding:12px 16px;border:1px solid var(--rule);border-left:3px solid var(--warn);background:var(--slab);font-size:14px;line-height:1.55;color:var(--frost);max-width:110ch}
+.k-src b{font-weight:600}
+.k-link{color:var(--t-cold);font-family:var(--f-data);font-size:12px;letter-spacing:.08em;text-transform:uppercase;text-underline-offset:3px}
+.k-link:hover{color:var(--frost)}
+.a-sec .k-link{display:inline-block}
+
+@media (max-width:900px){.k-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.k-kwh{grid-column:1/-1}}
+@media (max-width:560px){.k-form{grid-template-columns:minmax(0,1fr)}}
+/* notes longues : la colonne Offre passe à la ligne, le reste reste sur une ligne */
+.a-table th:nth-child(2),.a-table th:nth-child(3),.a-table td.k-name,.a-table td.k-kind{text-align:left}
+.a-table td.k-name{white-space:normal;min-width:200px;max-width:340px}
+.a-table td.k-name .label{line-height:1.35}
+@media (max-width:480px){.a-table td.k-name{min-width:150px}}

@@ -1,6 +1,6 @@
 // PAC/POWER · thèmes graphiques (nuit, jour, contraste, neumorphisme, glassmorphisme, cyber-brutalisme). Chargé sans defer dans <head> : pose
 // html[data-theme] avant le premier rendu. Choix : mémorisé (localStorage.theme), sinon préférence du
-// système (contraste élevé -> contraste, clair -> jour), sinon nuit. Le sélecteur n'apparaît que dans /prive/.
+// système en contraste élevé -> contraste, sinon glassmorphisme (défaut). Le sélecteur est proposé sur toutes les pages, publiques comme privées.
 (() => {
   "use strict";
   const THEMES = {
@@ -16,7 +16,8 @@
   const mqLight = mq("(prefers-color-scheme: light)"), mqMore = mq("(prefers-contrast: more)");
 
   const stored = () => { try { const s = localStorage.getItem("theme"); return s && Object.hasOwn(THEMES, s) ? s : null; } catch { return null; } };
-  const auto = () => (mqMore?.matches ? "contraste" : mqLight?.matches ? "jour" : "nuit");
+  // Défaut : glassmorphisme (choix owner). Seule exception : contraste élevé demandé par le système (accessibilité).
+  const auto = () => (mqMore?.matches ? "contraste" : "glassmorphisme");
 
   function apply(name) {
     root.dataset.theme = name;
@@ -33,7 +34,6 @@
   for (const m of [mqLight, mqMore]) m?.addEventListener?.("change", follow);
 
   document.addEventListener("DOMContentLoaded", () => {
-    if (!location.pathname.startsWith("/prive/")) return;
     const bar = document.querySelector("header.bar");
     if (!bar) return;
     const t = (s) => (window.I18N?.t ? window.I18N.t(s) : s);

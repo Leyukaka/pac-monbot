@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PAC/POWER · Calculateur</title>
+<meta name="description" content="Calculateur gratuit du coût annuel de l'électricité au Luxembourg (réseau Creos) : indique ta consommation et compare toutes les offres du marché, sans compte ni donnée personnelle.">
+<meta name="theme-color" content="#120E2E">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/calculateur.css">
+<link rel="stylesheet" href="/themes.css">
+<script src="/theme.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand"><span class="word">PAC<span>/</span>POWER</span></div>
+    <nav class="views" aria-label="Vues"><a href="./">Tableau</a><a href="./calculateur" aria-current="page">Calculateur</a><a href="./analyse" data-priv hidden>Analyse</a><a href="./couts" data-priv hidden>Coûts</a></nav>
+    <span class="pill num" id="k-date">-</span>
+  </header>
+
+  <section aria-label="Ta consommation" class="a-sec">
+    <div class="sec-h"><h2>Combien te coûte ton électricité&nbsp;?</h2><span class="label">toutes les offres du marché luxembourgeois, réseau Creos</span></div>
+    <div class="panel wide">
+      <div class="c-form k-form">
+        <div class="c-field k-kwh">
+          <label class="label" for="k-c">Consommation annuelle kWh</label>
+          <input class="c-in num" type="number" id="k-c" step="100" min="0" max="200000" inputmode="numeric" aria-describedby="k-c-help">
+          <div class="tabs" role="group" aria-label="Consommations types" id="k-presets"><button type="button" data-c="3000" aria-pressed="false">3 000</button><button type="button" data-c="6000" aria-pressed="false">6 000</button><button type="button" data-c="12000" aria-pressed="false">12 000</button><button type="button" data-c="20000" aria-pressed="false">20 000</button></div>
+          <p class="why" id="k-c-help">Tu la trouves sur ta facture annuelle (décompte de régularisation), en kWh sur 12 mois. Repères : appartement 2 000 à 3 500 kWh, maison 4 000 à 6 000 kWh, maison avec pompe à chaleur ou voiture électrique 10 000 kWh et plus.</p>
+          <p class="c-err" id="k-c-err" hidden>Indique une consommation entre 0 et 200 000 kWh.</p>
+        </div>
+        <div class="c-field">
+          <span class="label" id="k-p-l">Puissance de référence</span>
+          <div class="tabs" role="group" aria-labelledby="k-p-l" id="k-pref"><button type="button" data-p="3" aria-pressed="false">3 kW</button><button type="button" data-p="7" aria-pressed="false">7 kW</button><button type="button" data-p="12" aria-pressed="false">12 kW</button><button type="button" data-p="17" aria-pressed="false">17 kW</button></div>
+          <p class="why">Elle figure sur ta facture (frais de réseau Creos). Dans le doute, garde 7 kW, la valeur la plus courante.</p>
+        </div>
+        <div class="c-field">
+          <span class="label" id="k-m-l">Offres à prix selon l'heure</span>
+          <div class="tabs" role="group" aria-labelledby="k-m-l" id="k-mode"><button type="button" data-m="calculix" aria-pressed="true">Profil Calculix</button><button type="button" data-m="mine" aria-pressed="false">Ma répartition</button></div>
+          <label class="k-range-l" for="k-share"><span>Part de ma consommation en heures creuses</span> <b class="num" id="k-share-v">-</b></label>
+          <input type="range" id="k-share" min="0" max="80" step="1" aria-describedby="k-share-help">
+          <p class="why" id="k-share-help">-</p>
+        </div>
+      </div>
+      <label class="c-check"><input class="c-in" type="checkbox" id="k-best1"><span>Montrer seulement le moins cher par fournisseur</span></label>
+    </div>
+  </section>
+
+  <div class="wait" id="k-wait">Chargement des offres…</div>
+
+  <section aria-label="Résultat" class="a-sec" id="k-out" hidden>
+    <div class="panel wide k-best" id="k-best" aria-live="polite"></div>
+    <div class="panel wide a-scroll"><table class="a-table num" id="k-table"></table></div>
+    <p class="why k-foot">* Prix variable du marché : moyenne indicative calculée par Calculix sur un profil ménage ; le coût réel suit les prix de chaque heure.</p>
+    <div class="panel wide">
+      <div class="meta"><h3>Coût annuel par offre</h3><span class="label" id="k-chart-l">-</span></div>
+      <svg id="k-chart" role="img" aria-label="Coût annuel toutes taxes comprises de chaque offre, de la moins chère à la plus chère"></svg>
+    </div>
+  </section>
+
+  <section aria-label="Source" class="a-sec">
+    <p class="k-src" id="k-src">Prix relevés sur le comparateur officiel de l'ILR (calculix.lu).</p>
+    <p class="why"><a class="k-link" href="https://www.calculix.lu/fr/calculix-public-private/" rel="noopener noreferrer" target="_blank">Ouvrir calculix.lu</a></p>
+  </section>
+
+  <section aria-label="Méthode" class="a-sec">
+    <div class="sec-h"><h2>Méthode et limites</h2><span class="label">formules et sources</span></div>
+    <div class="panel wide">
+      <ul class="why a-method" id="k-method">
+        <li>Coût annuel TTC = (énergie + taxes + réseau + fixe fournisseur) × (1 + TVA), tout calculé dans ton navigateur à partir des prix hors TVA relevés sur Calculix.</li>
+        <li>Énergie = consommation × prix de l'énergie de l'offre. Taxes = consommation × (contribution au mécanisme de compensation + taxe électricité) ; la compensation est négative jusqu'au 31/12/2026 (mesure temporaire), elle fait donc baisser la facture.</li>
+        <li>Réseau Creos = consommation × prix réseau au kWh + 12 × (part fixe selon la puissance de référence + comptage).</li>
+        <li>Offres à prix selon l'heure : « Profil Calculix » reprend le prix moyen calculé par Calculix sur un profil de consommation ménagère type. « Ma répartition » : la part choisie est payée au prix creux de la grille, le reste est réparti 70 % au prix de base (journée) et 30 % au prix de pointe (soirée), parce qu'un ménage consomme davantage le jour que le soir. La valeur de départ du curseur est celle qui redonne le prix moyen Calculix.</li>
+        <li>Prix variables du marché : moyenne indicative sur un profil ménage ; le vrai coût dépend des prix de chaque heure et peut monter ou baisser.</li>
+        <li>Remises de bienvenue et offres groupées exclues. Réseau Creos seulement (les autres gestionnaires de réseau ont d'autres tarifs).</li>
+        <li>Aucune donnée personnelle : aucun compte, aucun envoi ; tes saisies restent dans ce navigateur.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span class="label">Calculateur public · sans compte</span><a class="label priv-link" href="./">Retour au tableau</a></footer>
+</div>
+<script src="/i18n-dict.js" defer></script>
+<script src="/i18n.js" defer></script>
+<script src="/calculateur.js" defer></script>
+</body>
+</html>

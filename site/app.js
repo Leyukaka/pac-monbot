@@ -588,7 +588,8 @@
       if (demo === "defrost") { put(ID.hz, 50); put(ID.defrost, 1); put(ID.gp12, 60); }
       else { put(ID.hz, Number(demo) || 64); put(ID.defrost, 0); put(ID.gp12, 75); put(ID.gp1, 90); }
     }
-    $("views").hidden = !NOW.house; // onglet Analyse : espace privé seulement
+    // Onglets Analyse et Coûts : espace privé seulement ; Tableau et Calculateur sont publics.
+    document.querySelectorAll("#views [data-priv]").forEach((a) => { a.hidden = !NOW.house; });
     renderNow();
     await loadOverview();
     drawBrush();

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PAC/POWER · Coûts</title>
 <meta name="description" content="Coûts privés de l'électricité : coût réel, comparaison d'offres, puissance de référence, communauté énergétique et panneaux solaires.">
-<meta name="theme-color" content="#0A111F">
+<meta name="theme-color" content="#120E2E">
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/fonts/fonts.css">
@@ -18,7 +18,7 @@
 <div class="wrap">
   <header class="bar">
     <div class="brand"><span class="word">PAC<span>/</span>POWER</span></div>
-    <nav class="views" aria-label="Vues"><a href="./">Tableau</a><a href="./analyse">Analyse</a><a href="./couts" aria-current="page">Coûts</a></nav>
+    <nav class="views" aria-label="Vues"><a href="./">Tableau</a><a href="./calculateur">Calculateur</a><a href="./analyse">Analyse</a><a href="./couts" aria-current="page">Coûts</a></nav>
     <span class="pill num" id="c-range">-</span>
   </header>
 
@@ -72,7 +72,7 @@
   </section>
 
   <section aria-label="Offres du marché" class="a-sec">
-    <div class="sec-h"><h2>Offres du marché</h2><span class="label">comparateur ILR Calculix, relevé du 22/11/2026</span></div>
+    <div class="sec-h"><h2>Offres du marché</h2><span class="label" id="mk-date"></span></div>
     <div class="panel wide a-scroll"><table class="a-table num" id="mk-table"></table></div>
     <p class="why" id="mk-why"></p>
   </section>
